@@ -425,7 +425,7 @@ class InstallerContractTests(unittest.TestCase):
             ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
         )
         for adapter_name, relative_script, config_variable in installers:
-            for scenario in ("group-writable", "symlink-into-repository"):
+            for scenario in ("world-writable", "symlink-into-repository"):
                 with self.subTest(
                     adapter=adapter_name,
                     scenario=scenario,
@@ -445,13 +445,13 @@ class InstallerContractTests(unittest.TestCase):
                     )
                     canary = root / f"{adapter_name}-{scenario}-python-executed"
                     unsafe_bin = root / "unsafe-bin"
-                    if scenario == "group-writable":
+                    if scenario == "world-writable":
                         self.write_fake_command(
                             unsafe_bin,
                             "python3",
                             f": > {str(canary)!r}\nexit 97",
                         )
-                        (unsafe_bin / "python3").chmod(0o775)
+                        (unsafe_bin / "python3").chmod(0o777)
                     else:
                         repository_bin = repository / "bin"
                         self.write_fake_command(

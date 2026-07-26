@@ -250,7 +250,7 @@ if [[ ! -f "$python_executable" || ! -x "$python_executable" ]] || \
   exit 1
 fi
 python_mode_value=$((8#$stat_mode))
-if ((python_mode_value & 0022)); then
+if ((python_mode_value & 0002)); then
   builtin printf '%s: external python3 executable is unsafe\n' "$command_name" >&2
   exit 1
 fi
@@ -340,7 +340,7 @@ def trusted_external_executable(name: str) -> str:
             for repository_root in repository_roots
         )
         or not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        or metadata.st_mode & stat.S_IWOTH
         or not os.access(executable, os.X_OK)
     ):
         raise InstallFailure(f"external {name} executable is unsafe")

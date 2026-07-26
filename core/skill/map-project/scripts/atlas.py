@@ -1275,7 +1275,7 @@ def trusted_host_executable(
         raise AtlasError(f"host {name} executable is unsafe") from None
     if (
         not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        or metadata.st_mode & stat.S_IWOTH
         or not os.access(executable, os.X_OK)
     ):
         raise AtlasError(f"host {name} executable is unsafe")
