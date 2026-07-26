@@ -1,0 +1,36 @@
+{
+  "fixture": "standard_service",
+  "expected_mode": "STANDARD",
+  "inventory": {
+    "entrypoints": ["service/__main__.py", "service/api.py", "service/worker.py"],
+    "state_writers": ["service/state.py"],
+    "authority": ["service/authority.py"],
+    "retries": ["service/worker.py"],
+    "unknowns": ["README.md", "service/worker.py"]
+  },
+  "required_artifacts": [
+    "ATLAS_INDEX.md",
+    "PRODUCT_AND_REQUIREMENTS.md",
+    "CURRENT_ARCHITECTURE.md",
+    "RUNTIME_AND_ENTRYPOINTS.md",
+    "DATA_STATE_AND_AUTHORITY.md",
+    "PRODUCT_FLOWS.md",
+    "QUALITY_SECURITY_AND_OPERATIONS.md",
+    "FINDINGS_AND_DISPOSITIONS.md",
+    "TARGET_ARCHITECTURE.md",
+    "MIGRATION_PLAN.md",
+    "OPEN_UNKNOWNS.md",
+    "LIVE_HANDOFF.md"
+  ],
+  "forbidden_artifacts": ["PROJECT_ATLAS.md"],
+  "required_markers": {
+    "ATLAS_INDEX.md": ["# Project Atlas", "STANDARD", "CURRENT_ARCHITECTURE.md", "LIVE_HANDOFF.md"],
+    "CURRENT_ARCHITECTURE.md": ["# Current Architecture", "## Evidence"],
+    "RUNTIME_AND_ENTRYPOINTS.md": ["# Runtime and Entrypoints", "## Entry Points"],
+    "DATA_STATE_AND_AUTHORITY.md": ["# Data, State, and Authority", "## State Writers", "## Authority"],
+    "TARGET_ARCHITECTURE.md": ["# Target Architecture"],
+    "MIGRATION_PLAN.md": ["# Migration Plan", "## Rollback"],
+    "OPEN_UNKNOWNS.md": ["# Open Unknowns", "UNKNOWN"],
+    "LIVE_HANDOFF.md": ["# Live Handoff", "## Continue From Here"]
+  }
+}

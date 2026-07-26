@@ -1,0 +1,34 @@
+{
+  "name": "project-atlas",
+  "version": "0.1.0",
+  "description": "Build an evidence-backed map of project architecture, runtime, state, authority, risks, and migration paths.",
+  "author": {
+    "name": "Project Atlas contributors"
+  },
+  "homepage": "https://github.com/ddenny-s/project-atlas",
+  "repository": "https://github.com/ddenny-s/project-atlas",
+  "license": "MIT",
+  "keywords": [
+    "architecture",
+    "codebase",
+    "documentation",
+    "forensics",
+    "refactoring"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Project Atlas",
+    "shortDescription": "Map architecture, runtime, state, and risks",
+    "longDescription": "Build an evidence-backed map of project architecture, runtime, state, authority, risks, and migration paths.",
+    "developerName": "Project Atlas contributors",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/ddenny-s/project-atlas",
+    "defaultPrompt": [
+      "Use $project-atlas:map-project to create a STANDARD atlas of this repository."
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "project-atlas",
+  "version": "0.1.0",
+  "description": "Build an evidence-backed map of project architecture, runtime, state, authority, risks, and migration paths.",
+  "author": {
+    "name": "Project Atlas contributors"
+  },
+  "homepage": "https://github.com/ddenny-s/project-atlas",
+  "repository": "https://github.com/ddenny-s/project-atlas",
+  "license": "MIT",
+  "keywords": [
+    "architecture",
+    "codebase",
+    "documentation",
+    "forensics",
+    "refactoring"
+  ],
+  "skills": "./skills/"
+}

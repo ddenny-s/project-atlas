@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "project-atlas",
+  "description": "Project Atlas plugins for evidence-backed software project mapping.",
+  "owner": {
+    "name": "Project Atlas contributors"
+  },
+  "plugins": [
+    {
+      "name": "project-atlas",
+      "version": "0.1.0",
+      "description": "Build an evidence-backed map of project architecture, runtime, state, authority, risks, and migration paths.",
+      "author": {
+        "name": "Project Atlas contributors"
+      },
+      "source": "./adapters/claude-code",
+      "category": "development",
+      "homepage": "https://github.com/ddenny-s/project-atlas"
+    }
+  ]
+}

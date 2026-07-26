@@ -1,0 +1,37 @@
+{
+  "fixture": "quick_cli",
+  "expected_mode": "QUICK",
+  "inventory": {
+    "entrypoints": ["quick_cli/__main__.py"],
+    "state_writers": ["quick_cli/runtime.py"],
+    "authority": ["quick_cli/runtime.py"],
+    "retries": ["quick_cli/runtime.py"],
+    "unknowns": ["README.md"]
+  },
+  "required_artifacts": ["PROJECT_ATLAS.md"],
+  "forbidden_artifacts": [
+    "ATLAS_INDEX.md",
+    "TRACEABILITY.tsv",
+    "LIVE_HANDOFF.md"
+  ],
+  "required_markers": {
+    "PROJECT_ATLAS.md": [
+      "# Project Atlas",
+      "QUICK",
+      "## Scope and Depth Rationale",
+      "## Evidence Snapshot",
+      "## Purpose",
+      "## Entry Point",
+      "## Inputs and Outputs",
+      "## Dependencies",
+      "## Verification",
+      "## Exact Validation Result",
+      "## Risks",
+      "## Exclusions",
+      "## Evidence Legend",
+      "## Next Safe Action",
+      "## Source References",
+      "## Unknowns"
+    ]
+  }
+}

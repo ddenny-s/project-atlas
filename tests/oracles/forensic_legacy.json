@@ -1,0 +1,44 @@
+{
+  "fixture": "forensic_legacy",
+  "expected_mode": "FORENSIC",
+  "inventory": {
+    "entrypoints": [
+      "legacy_system/gateway.py",
+      "legacy_system/webhook.py",
+      "legacy_system/worker.py",
+      "legacy_system/cron.py"
+    ],
+    "state_writers": ["legacy_system/ledger.py", "legacy_system/migration_writer.py"],
+    "authority": ["legacy_system/authority.py", "legacy_system/webhook.py"],
+    "retries": ["legacy_system/retry.py", "legacy_system/worker.py"],
+    "unknowns": ["README.md", "legacy_system/migration_writer.py", "legacy_system/worker.py"]
+  },
+  "required_artifacts": [
+    "ATLAS_INDEX.md",
+    "PRODUCT_AND_REQUIREMENTS.md",
+    "CURRENT_ARCHITECTURE.md",
+    "RUNTIME_AND_ENTRYPOINTS.md",
+    "DATA_STATE_AND_AUTHORITY.md",
+    "PRODUCT_FLOWS.md",
+    "QUALITY_SECURITY_AND_OPERATIONS.md",
+    "FINDINGS_AND_DISPOSITIONS.md",
+    "TARGET_ARCHITECTURE.md",
+    "MIGRATION_PLAN.md",
+    "TRACEABILITY.tsv",
+    "OPEN_UNKNOWNS.md",
+    "LIVE_HANDOFF.md"
+  ],
+  "forbidden_artifacts": ["PROJECT_ATLAS.md"],
+  "required_markers": {
+    "ATLAS_INDEX.md": ["# Project Atlas", "FORENSIC", "TRACEABILITY.tsv", "LIVE_HANDOFF.md"],
+    "RUNTIME_AND_ENTRYPOINTS.md": ["# Runtime and Entrypoints", "## Entry Points", "## Effects"],
+    "DATA_STATE_AND_AUTHORITY.md": ["# Data, State, and Authority", "## State Writers", "## Authority"],
+    "FINDINGS_AND_DISPOSITIONS.md": ["# Findings and Dispositions", "Keep", "Rewrite", "Delete"],
+    "MIGRATION_PLAN.md": ["# Migration Plan", "## Rollback"],
+    "OPEN_UNKNOWNS.md": ["# Open Unknowns", "UNKNOWN"],
+    "LIVE_HANDOFF.md": ["# Live Handoff", "## Continue From Here"],
+    "TRACEABILITY.tsv": [
+      "fact_id\tclaim_kind\tclaim\tsource_type\tsource_ref\tobserved_at\tstatus\tatlas_refs\tnotes"
+    ]
+  }
+}

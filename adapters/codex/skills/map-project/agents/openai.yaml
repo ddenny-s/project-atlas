@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Atlas"
+  short_description: "Map project architecture, runtime, state, authority, and risks"
+  default_prompt: "Use $project-atlas:map-project to create a verifiable atlas of this project."

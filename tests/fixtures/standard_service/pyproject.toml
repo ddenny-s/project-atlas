@@ -1,0 +1,7 @@
+[project]
+name = "parcel-status-fixture"
+version = "0.0.0"
+requires-python = ">=3.10"
+
+[project.scripts]
+parcel-status = "service.__main__:main"

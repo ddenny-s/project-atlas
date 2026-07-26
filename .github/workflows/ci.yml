@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }} checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.10"
+          - os: ubuntu-latest
+            python-version: "3.13"
+          - os: macos-latest
+            python-version: "3.13"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run unit tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Verify generated adapter bundles
+        run: python3 scripts/sync_adapters.py --check
+      - name: Check all tracked files for whitespace errors
+        run: |
+          empty_tree="$(git hash-object -t tree -w /dev/null)"
+          git -c core.whitespace=trailing-space,-blank-at-eof diff --check "$empty_tree" HEAD
+
+  windows-python-contract:
+    name: Windows Python contract
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Run portable Python contracts
+        run: >-
+          python -m unittest -v
+          tests.test_fixture_contracts
+          tests.test_repository_hygiene
+          tests.test_skill_contract
+          tests.test_cross_platform_contracts
+          tests.test_sync_adapters.SyncAdaptersTransactionTests.test_check_mode_is_state_free_when_scratch_is_absent
+          tests.test_sync_adapters.SyncAdaptersTransactionTests.test_check_mode_fails_closed_if_state_appears_during_scan
+          tests.test_sync_adapters.SyncAdaptersTransactionTests.test_windows_write_mode_is_rejected_before_repository_lock
+          tests.test_sync_adapters.SyncAdaptersTransactionTests.test_windows_promotion_fails_closed_without_handle_relative_rename
+      - name: Verify generated adapter bundles
+        run: python scripts/sync_adapters.py --check
