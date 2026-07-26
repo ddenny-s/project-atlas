@@ -1273,10 +1273,8 @@ def trusted_host_executable(
         resolved_roots = tuple(root.resolve(strict=True) for root in prohibited_roots)
     except OSError:
         raise AtlasError(f"host {name} executable is unsafe") from None
-    effective_uid = os.geteuid() if hasattr(os, "geteuid") else metadata.st_uid
     if (
         not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_uid not in {0, effective_uid}
         or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
         or not os.access(executable, os.X_OK)
     ):
