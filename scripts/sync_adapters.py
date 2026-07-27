@@ -191,10 +191,27 @@ def _scan_reserved_sync_inventory(
             raise SyncError("cannot inspect synchronization inventory directory") from exc
         if _identity_from_stat(initial_details) != initial_identity:
             raise SyncError("synchronization inventory directory changed before scan")
-        initial_signature = _stable_stat_signature(initial_details)
+        initial_path_signature = _stable_stat_signature(initial_details)
         entries = 0
         descriptor = _open_directory_descriptor(directory, initial_identity)
         try:
+            try:
+                opened_details = os.fstat(descriptor)
+                opened_path_details = os.lstat(directory)
+            except OSError as exc:
+                raise SyncError(
+                    "synchronization inventory directory changed before scan"
+                ) from exc
+            opened_handle_signature = _stable_stat_signature(opened_details)
+            if (
+                _identity_from_stat(opened_details) != initial_identity
+                or _identity_from_stat(opened_path_details) != initial_identity
+                or _stable_stat_signature(opened_path_details)
+                != initial_path_signature
+            ):
+                raise SyncError(
+                    "synchronization inventory directory changed before scan"
+                )
             scan_root: int | Path = directory if os.name == "nt" else descriptor
             with os.scandir(scan_root) as children:
                 for entry in children:
@@ -230,7 +247,7 @@ def _scan_reserved_sync_inventory(
                 os.close(descriptor)
         if (
             _identity_from_stat(final_opened) != initial_identity
-            or _stable_stat_signature(final_opened) != initial_signature
+            or _stable_stat_signature(final_opened) != opened_handle_signature
         ):
             raise SyncError("synchronization inventory directory changed during scan")
         try:
@@ -239,10 +256,10 @@ def _scan_reserved_sync_inventory(
             raise SyncError("synchronization inventory directory changed during scan") from exc
         if (
             _identity_from_stat(final_details) != initial_identity
-            or _stable_stat_signature(final_details) != initial_signature
+            or _stable_stat_signature(final_details) != initial_path_signature
         ):
             raise SyncError("synchronization inventory directory changed during scan")
-        inventory[directory] = (initial_identity, initial_signature)
+        inventory[directory] = (initial_identity, initial_path_signature)
     return inventory
 
 

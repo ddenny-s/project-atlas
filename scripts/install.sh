@@ -164,23 +164,33 @@ fi
 stat_owner_and_mode() {
   local target="$1"
   local output
-  if output="$("$trusted_stat" -f '%u %g %Lp' -- "$target" 2>/dev/null)"; then
+  if output="$("$trusted_stat" -f '%u %g %p %l' -- "$target" 2>/dev/null)"; then
     :
-  elif output="$("$trusted_stat" -c '%u %g %a' -- "$target" 2>/dev/null)"; then
+  elif output="$("$trusted_stat" -c '%u %g %a %h' -- "$target" 2>/dev/null)"; then
     :
   else
     return 1
   fi
-  builtin read -r stat_owner stat_group stat_mode stat_extra <<<"$output"
+  builtin read -r stat_owner stat_group stat_mode stat_link_count stat_extra <<<"$output"
   [[
     -n "${stat_owner:-}" &&
     -n "${stat_group:-}" &&
     -n "${stat_mode:-}" &&
+    -n "${stat_link_count:-}" &&
     -z "${stat_extra:-}" &&
     "$stat_owner" =~ ^[0-9]+$ &&
     "$stat_group" =~ ^[0-9]+$ &&
-    "$stat_mode" =~ ^[0-7]+$
+    "$stat_mode" =~ ^[0-7]+$ &&
+    "$stat_link_count" =~ ^[1-9][0-9]*$
   ]]
+}
+
+is_trusted_executable_link_count() {
+  local owner="$1"
+  local link_count="$2"
+  [[ "$owner" =~ ^[0-9]+$ ]] || return 1
+  [[ "$link_count" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ "$owner" == "0" || "$link_count" == "1" ]]
 }
 
 is_process_group() {
@@ -214,6 +224,32 @@ is_trusted_homebrew_cellar_directory() {
     ! ((mode_value & 0002))
 }
 
+is_trusted_sticky_directory() {
+  local owner="$1"
+  local mode_value="$2"
+  [[ "$owner" == "0" || "$owner" == "$EUID" ]] &&
+    ((mode_value & 0002)) &&
+    ((mode_value & 01000))
+}
+
+is_trusted_executable_ancestor() {
+  local candidate="$1"
+  local owner="$2"
+  local group="$3"
+  local mode_value="$4"
+  if [[ "$owner" != "0" && "$owner" != "$EUID" ]]; then
+    return 1
+  fi
+  if ! ((mode_value & 0022)); then
+    return 0
+  fi
+  if is_trusted_sticky_directory "$owner" "$mode_value"; then
+    return 0
+  fi
+  is_trusted_homebrew_cellar_directory \
+    "$candidate" "$owner" "$group" "$mode_value"
+}
+
 stat_identity() {
   local target="$1"
   local output
@@ -243,23 +279,53 @@ for repository_root in "${source_repository_roots[@]}"; do
   source_repository_identities+=("$stat_device:$stat_inode")
 done
 
-is_source_repository_path() {
+normalize_absolute_path() {
   local candidate="$1"
-  local current
-  local current_identity
-  local current_name
-  local current_parent
-  local repository_identity
+  local component
+  local component_count
+  local remaining
+  local resolved_cwd
+  local -a components=()
   if [[ "$candidate" != /* ]]; then
-    current_name="${candidate##*/}"
-    current_parent="${candidate%/*}"
-    [[ "$current_parent" == "$candidate" ]] && current_parent="."
-    if ! current_parent="$(physical_directory "$current_parent")"; then
-      return 2
+    if ! resolved_cwd="$(physical_directory ".")"; then
+      return 1
     fi
-    candidate="$current_parent/$current_name"
+    candidate="$resolved_cwd/$candidate"
   fi
-  current="$candidate"
+  remaining="${candidate#/}"
+  while [[ -n "$remaining" ]]; do
+    if [[ "$remaining" == */* ]]; then
+      component="${remaining%%/*}"
+      remaining="${remaining#*/}"
+    else
+      component="$remaining"
+      remaining=""
+    fi
+    case "$component" in
+      "" | .)
+        ;;
+      ..)
+        component_count=${#components[@]}
+        if ((component_count)); then
+          unset "components[$((component_count - 1))]"
+        fi
+        ;;
+      *)
+        components[${#components[@]}]="$component"
+        ;;
+    esac
+  done
+  normalized_path=""
+  for component in "${components[@]}"; do
+    normalized_path+="/$component"
+  done
+  [[ -n "$normalized_path" ]] || normalized_path="/"
+}
+
+path_has_source_repository_ancestor() {
+  local current="$1"
+  local current_identity
+  local repository_identity
   while :; do
     if ! stat_identity "$current"; then
       return 2
@@ -277,42 +343,87 @@ is_source_repository_path() {
   return 1
 }
 
+is_source_repository_path() {
+  if ! normalize_absolute_path "$1"; then
+    return 2
+  fi
+  path_has_source_repository_ancestor "$normalized_path"
+}
+
+rewrite_first_symlink() {
+  local candidate="$1"
+  local component
+  local link_parent
+  local link_target
+  local prefix=""
+  local remaining="${candidate#/}"
+  local replacement
+  while [[ -n "$remaining" ]]; do
+    if [[ "$remaining" == */* ]]; then
+      component="${remaining%%/*}"
+      remaining="${remaining#*/}"
+    else
+      component="$remaining"
+      remaining=""
+    fi
+    prefix="$prefix/$component"
+    if [[ ! -L "$prefix" ]]; then
+      continue
+    fi
+    if ! link_target="$("$trusted_readlink" "$prefix")" || [[ -z "$link_target" ]]; then
+      return 2
+    fi
+    if [[ "$link_target" == /* ]]; then
+      replacement="$link_target"
+    else
+      link_parent="${prefix%/*}"
+      [[ -n "$link_parent" ]] || link_parent="/"
+      replacement="$link_parent/$link_target"
+    fi
+    if [[ -n "$remaining" ]]; then
+      replacement="$replacement/$remaining"
+    fi
+    if ! normalize_absolute_path "$replacement"; then
+      return 2
+    fi
+    rewritten_path="$normalized_path"
+    return 0
+  done
+  return 1
+}
+
 resolve_executable_path() {
   local candidate="$1"
-  local link_target
-  local link_parent
-  local link_name
+  local rewrite_status
+  local source_status
   local hops=0
-  while [[ -L "$candidate" ]]; do
+  if ! normalize_absolute_path "$candidate"; then
+    return 1
+  fi
+  candidate="$normalized_path"
+  while :; do
+    if path_has_source_repository_ancestor "$candidate"; then
+      source_status=0
+    else
+      source_status=$?
+    fi
+    ((source_status == 1)) || return 1
+    if rewrite_first_symlink "$candidate"; then
+      rewrite_status=0
+    else
+      rewrite_status=$?
+    fi
+    if ((rewrite_status == 1)); then
+      builtin printf '%s\n' "$candidate"
+      return 0
+    fi
+    ((rewrite_status == 0)) || return 1
     ((hops += 1))
     if ((hops > 32)); then
       return 1
     fi
-    if ! link_target="$("$trusted_readlink" "$candidate")" || [[ -z "$link_target" ]]; then
-      return 1
-    fi
-    if [[ "$link_target" == /* ]]; then
-      candidate="$link_target"
-    else
-      link_parent="${candidate%/*}"
-      [[ "$link_parent" == "$candidate" ]] && link_parent="."
-      candidate="$link_parent/$link_target"
-    fi
-    link_name="${candidate##*/}"
-    link_parent="${candidate%/*}"
-    [[ "$link_parent" == "$candidate" ]] && link_parent="."
-    if ! link_parent="$(physical_directory "$link_parent")"; then
-      return 1
-    fi
-    candidate="$link_parent/$link_name"
+    candidate="$rewritten_path"
   done
-  link_name="${candidate##*/}"
-  link_parent="${candidate%/*}"
-  [[ "$link_parent" == "$candidate" ]] && link_parent="."
-  if ! link_parent="$(physical_directory "$link_parent")"; then
-    return 1
-  fi
-  builtin printf '%s/%s\n' "$link_parent" "$link_name"
 }
 
 if ! python_candidate="$(builtin type -P python3)" || [[ -z "$python_candidate" ]]; then
@@ -346,6 +457,10 @@ if [[ "$stat_owner" != "0" && "$stat_owner" != "$EUID" ]] || \
   builtin printf '%s: external python3 executable is unsafe\n' "$command_name" >&2
   exit 1
 fi
+if ! is_trusted_executable_link_count "$stat_owner" "$stat_link_count"; then
+  builtin printf '%s: external python3 executable is unsafe\n' "$command_name" >&2
+  exit 1
+fi
 python_parent="${python_executable%/*}"
 while :; do
   if ! stat_owner_and_mode "$python_parent"; then
@@ -353,13 +468,8 @@ while :; do
     exit 1
   fi
   python_parent_mode=$((8#$stat_mode))
-  if ((python_parent_mode & 0020)) && \
-    ! is_trusted_homebrew_cellar_directory \
-      "$python_parent" "$stat_owner" "$stat_group" "$python_parent_mode"; then
-    builtin printf '%s: external python3 executable is unsafe\n' "$command_name" >&2
-    exit 1
-  fi
-  if ((python_parent_mode & 0002)) && ! ((python_parent_mode & 01000)); then
+  if ! is_trusted_executable_ancestor \
+    "$python_parent" "$stat_owner" "$stat_group" "$python_parent_mode"; then
     builtin printf '%s: external python3 executable is unsafe\n' "$command_name" >&2
     exit 1
   fi
@@ -368,7 +478,7 @@ while :; do
   [[ -n "$python_parent" ]] || python_parent="/"
 done
 
-"$python_executable" - "$source_skill" "$installation_root" "$force" "$installer_host" "$command_name" 9 <<'PY'
+"$python_executable" -I - "$source_skill" "$installation_root" "$force" "$installer_host" "$command_name" 9 <<'PY'
 from __future__ import annotations
 
 import ctypes
@@ -448,6 +558,125 @@ def is_trusted_homebrew_cellar_directory(
     )
 
 
+def is_trusted_sticky_directory(
+    metadata: os.stat_result,
+    trusted_owners: set[int],
+) -> bool:
+    return (
+        getattr(metadata, "st_uid", None) in trusted_owners
+        and bool(metadata.st_mode & stat.S_IWOTH)
+        and bool(metadata.st_mode & stat.S_ISVTX)
+    )
+
+
+def is_trusted_executable_ancestor(
+    directory: Path,
+    metadata: os.stat_result,
+    trusted_owners: set[int],
+    process_groups: set[int],
+) -> bool:
+    if getattr(metadata, "st_uid", None) not in trusted_owners:
+        return False
+    if not metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        return True
+    return (
+        is_trusted_sticky_directory(metadata, trusted_owners)
+        or is_trusted_homebrew_cellar_directory(
+            directory,
+            metadata,
+            trusted_owners,
+            process_groups,
+        )
+    )
+
+
+def is_trusted_executable_link_count(metadata: os.stat_result) -> bool:
+    owner = getattr(metadata, "st_uid", None)
+    link_count = getattr(metadata, "st_nlink", None)
+    return (
+        type(owner) is int
+        and type(link_count) is int
+        and link_count > 0
+        and (owner == 0 or link_count == 1)
+    )
+
+
+def host_executable_name_matches(
+    name: str,
+    executable: Path,
+    *,
+    platform_name: str = os.name,
+) -> bool:
+    if platform_name == "nt":
+        expected = name.casefold()
+        actual = executable.name.casefold()
+        return actual in {expected, f"{expected}.exe"}
+    return executable.name == name
+
+
+def executable_path_is_link(metadata: os.stat_result) -> bool:
+    if stat.S_ISLNK(metadata.st_mode):
+        return True
+    reparse_tag = getattr(metadata, "st_reparse_tag", None)
+    if reparse_tag is not None and not isinstance(reparse_tag, int):
+        raise OSError("invalid executable reparse metadata")
+    supported_reparse_tags = {
+        tag
+        for tag in (
+            getattr(stat, "IO_REPARSE_TAG_SYMLINK", None),
+            getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", None),
+        )
+        if isinstance(tag, int)
+    }
+    if reparse_tag in supported_reparse_tags:
+        return True
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    file_attributes = getattr(metadata, "st_file_attributes", 0)
+    if not isinstance(file_attributes, int):
+        raise OSError("invalid executable reparse metadata")
+    if reparse_flag and file_attributes & reparse_flag:
+        raise OSError("unsupported executable reparse point")
+    return False
+
+
+def executable_symlink_chain(
+    candidate: Path,
+    *,
+    maximum_hops: int = 32,
+) -> tuple[Path, ...]:
+    current = Path(os.path.abspath(candidate))
+    chain = [current]
+    hops = 0
+    while True:
+        anchor = Path(current.anchor)
+        prefix = anchor
+        anchor_parts = len(anchor.parts)
+        symlink_found = False
+        for index, component in enumerate(
+            current.parts[anchor_parts:],
+            start=anchor_parts,
+        ):
+            prefix = prefix / component
+            metadata = prefix.lstat()
+            if not executable_path_is_link(metadata):
+                continue
+            if hops >= maximum_hops:
+                raise OSError("external executable symlink chain is too deep")
+            hops += 1
+            target = Path(os.readlink(prefix))
+            if not target.is_absolute():
+                target = prefix.parent / target
+            remainder = current.parts[index + 1 :]
+            if remainder:
+                target = target.joinpath(*remainder)
+            current = Path(os.path.abspath(target))
+            chain.extend((prefix, current))
+            symlink_found = True
+            break
+        if not symlink_found:
+            return tuple(chain)
+
+
 def trusted_external_executable(name: str) -> str:
     """Resolve a host tool while rejecting executables supplied by a source repository."""
 
@@ -456,10 +685,14 @@ def trusted_external_executable(name: str) -> str:
         raise InstallFailure(f"required external {name} executable is unavailable")
     try:
         candidate_path = Path(os.path.abspath(candidate))
-        executable = Path(candidate).resolve(strict=True)
+        candidate_chain = executable_symlink_chain(candidate_path)
+        resolved_candidate_parents = tuple(
+            path.parent.resolve(strict=True) for path in candidate_chain
+        )
+        executable = candidate_chain[-1].resolve(strict=True)
         package_root = Path(source_skill).parents[3].resolve(strict=True)
         metadata = executable.stat()
-    except (IndexError, OSError):
+    except (IndexError, OSError, RuntimeError):
         raise InstallFailure(f"external {name} executable is unsafe") from None
     effective_uid_getter = getattr(os, "geteuid", None)
     trusted_owners = {0}
@@ -485,14 +718,20 @@ def trusted_external_executable(name: str) -> str:
         repository_identities = {stat_identity(root) for root in repository_roots}
         supplied_by_source_repository = any(
             has_ancestor_identity(path, repository_identities)
-            for path in (candidate_path, executable)
+            for path in (
+                *candidate_chain,
+                *resolved_candidate_parents,
+                executable,
+            )
         )
     except OSError:
         raise InstallFailure(f"external {name} executable is unsafe") from None
     if (
         supplied_by_source_repository
+        or not host_executable_name_matches(name, executable)
         or not stat.S_ISREG(metadata.st_mode)
         or getattr(metadata, "st_uid", None) not in trusted_owners
+        or not is_trusted_executable_link_count(metadata)
         or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
         or not os.access(executable, os.X_OK)
     ):
@@ -502,17 +741,11 @@ def trusted_external_executable(name: str) -> str:
             directory_metadata = directory.stat()
         except OSError:
             raise InstallFailure(f"external {name} executable is unsafe") from None
-        directory_mode = directory_metadata.st_mode
-        trusted_group_writable_cellar = is_trusted_homebrew_cellar_directory(
+        if not is_trusted_executable_ancestor(
             directory,
             directory_metadata,
             trusted_owners,
             process_groups,
-        )
-        if directory_mode & stat.S_IWGRP and not trusted_group_writable_cellar:
-            raise InstallFailure(f"external {name} executable is unsafe")
-        if (
-            directory_mode & stat.S_IWOTH and not directory_mode & stat.S_ISVTX
         ):
             raise InstallFailure(f"external {name} executable is unsafe")
     return os.fspath(executable)

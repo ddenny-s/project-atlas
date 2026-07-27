@@ -2689,6 +2689,327 @@ class AtlasSecurityRegressionTests(unittest.TestCase):
             self.assertIn("unsafe", str(raised.exception).lower())
             self.assertFalse(canary.exists(), "repository-local executable was launched")
 
+    @unittest.skipUnless(os.name == "posix", "POSIX hardlink regression")
+    def test_safe_inventory_rejects_external_hardlinked_git_before_execution(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(
+            prefix="atlas external hardlinked git "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            tool_directory = root / "host-tools" / "bin"
+            project.mkdir()
+            tool_directory.mkdir(parents=True)
+            canary = root / "git-executed"
+            fake = tool_directory / "git"
+            fake.write_text(
+                "#!/bin/sh\n"
+                f": > {str(canary)!r}\n"
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            os.link(fake, project / "source.py")
+
+            with mock.patch.object(
+                atlas_module.shutil,
+                "which",
+                return_value=os.fspath(fake),
+            ):
+                with self.assertRaises(atlas_module.AtlasError):
+                    atlas_module.build_safe_inventory(project)
+
+            self.assertFalse(
+                canary.exists(),
+                "external hardlinked Git was launched before source rejection",
+            )
+
+    def test_host_executable_link_count_is_validated_by_owner(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        cases = (
+            ("ordinary-user-owned", 501, 1, True),
+            ("system-root-owned-multilink", 0, 78, True),
+            ("user-owned-multilink", 501, 2, False),
+            ("root-owned-zero-links", 0, 0, False),
+            ("root-owned-negative-links", 0, -1, False),
+            ("user-owned-nonnumeric-links", 501, "2", False),
+            ("root-owned-boolean-links", 0, True, False),
+        )
+        for label, file_uid, link_count, accepted in cases:
+            with self.subTest(label=label):
+                metadata = mock.Mock(st_uid=file_uid, st_nlink=link_count)
+                self.assertEqual(
+                    atlas_module.executable_link_count_is_trusted(metadata),
+                    accepted,
+                )
+
+    def test_project_and_enclosing_path_symlinks_to_system_tools_are_rejected(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+
+        with tempfile.TemporaryDirectory(
+            prefix="atlas project path symlink "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            repository = root / "repository"
+            project = repository / "packages" / "service"
+            (repository / ".git").mkdir(parents=True)
+            project.mkdir(parents=True)
+            trusted_host_directory = root / "trusted-host" / "bin"
+            trusted_host_directory.mkdir(parents=True)
+            trusted_rg = trusted_host_directory / "rg"
+            trusted_rg.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            trusted_rg.chmod(0o755)
+            candidates = (
+                ("project", project / "bin" / "rg"),
+                ("enclosing", repository / "bin" / "rg"),
+            )
+            for location, candidate in candidates:
+                with self.subTest(location=location):
+                    candidate.parent.mkdir(parents=True, exist_ok=True)
+                    candidate.symlink_to(trusted_rg)
+                    with mock.patch.object(
+                        atlas_module.shutil,
+                        "which",
+                        return_value=os.fspath(candidate),
+                    ):
+                        with self.assertRaises(atlas_module.AtlasError) as raised:
+                            atlas_module.trusted_host_executable(
+                                "rg",
+                                prohibited_roots=(project,),
+                            )
+                    self.assertIn("unsafe", str(raised.exception).lower())
+
+            enclosing_rg = repository / "bin" / "rg"
+            enclosing_rg.unlink()
+            enclosing_rg.symlink_to(trusted_rg)
+            external_alias = root / "external-path-alias"
+            external_alias.symlink_to(enclosing_rg.parent, target_is_directory=True)
+            aliased_candidate = external_alias / "rg"
+            with mock.patch.object(
+                atlas_module.shutil,
+                "which",
+                return_value=os.fspath(aliased_candidate),
+            ):
+                with self.assertRaises(atlas_module.AtlasError) as raised:
+                    atlas_module.trusted_host_executable(
+                        "rg",
+                        prohibited_roots=(project,),
+                    )
+            self.assertIn("unsafe", str(raised.exception).lower())
+
+    def test_host_tool_alias_to_a_different_program_name_is_rejected(self) -> None:
+        trusted_target_text = shutil.which("sh")
+        self.assertIsNotNone(
+            trusted_target_text,
+            "host-tool name regression requires a system shell",
+        )
+        trusted_target = Path(trusted_target_text).resolve(strict=True)
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(
+            prefix="atlas mismatched host tool name "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            candidate = root / "host-tools" / "rg"
+            project.mkdir()
+            candidate.parent.mkdir()
+            candidate.symlink_to(trusted_target)
+            with mock.patch.object(
+                atlas_module.shutil,
+                "which",
+                return_value=os.fspath(candidate),
+            ):
+                with self.assertRaises(atlas_module.AtlasError) as raised:
+                    atlas_module.trusted_host_executable(
+                        "rg",
+                        prohibited_roots=(project,),
+                    )
+            self.assertIn("unsafe", str(raised.exception).lower())
+
+    def test_host_executable_name_matching_is_portable_and_exact(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        cases = (
+            ("posix", "rg", True),
+            ("posix", "RG", False),
+            ("posix", "rg.exe", False),
+            ("nt", "rg", True),
+            ("nt", "RG", True),
+            ("nt", "rg.exe", True),
+            ("nt", "RG.EXE", True),
+            ("nt", "sh", False),
+            ("nt", "rg.bat", False),
+            ("nt", "rg.cmd", False),
+            ("nt", "rg.exe.bak", False),
+            ("nt", "not-rg.exe", False),
+        )
+        for platform_name, actual_name, accepted in cases:
+            with self.subTest(platform=platform_name, actual=actual_name):
+                self.assertEqual(
+                    atlas_module.host_executable_name_matches(
+                        "rg",
+                        Path("/trusted") / actual_name,
+                        platform_name=platform_name,
+                    ),
+                    accepted,
+                )
+
+    def test_host_executable_reparse_points_are_traced_or_rejected(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        junction_tag = 0xA0000003
+        junction_metadata = mock.Mock(
+            st_mode=stat.S_IFDIR | 0o755,
+            st_file_attributes=reparse_flag,
+            st_reparse_tag=junction_tag,
+        )
+        with mock.patch.object(
+            atlas_module.stat,
+            "IO_REPARSE_TAG_MOUNT_POINT",
+            junction_tag,
+            create=True,
+        ):
+            self.assertTrue(
+                atlas_module.executable_path_is_link(junction_metadata)
+            )
+
+        unknown_metadata = mock.Mock(
+            st_mode=stat.S_IFDIR | 0o755,
+            st_file_attributes=reparse_flag,
+            st_reparse_tag=0xDEADBEEF,
+        )
+        with self.assertRaises(OSError):
+            atlas_module.executable_path_is_link(unknown_metadata)
+
+        non_numeric_metadata = mock.Mock(
+            st_mode=stat.S_IFDIR | 0o755,
+            st_file_attributes=mock.Mock(),
+            st_reparse_tag=mock.Mock(),
+        )
+        with self.assertRaises(OSError):
+            atlas_module.executable_path_is_link(non_numeric_metadata)
+
+    def test_host_tool_symlink_chain_cannot_relay_through_repository(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(
+            prefix="atlas repository symlink relay "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            repository = root / "repository"
+            project = repository / "packages" / "service"
+            repository_bin = repository / "bin"
+            trusted_bin = root / "trusted-host" / "bin"
+            (repository / ".git").mkdir(parents=True)
+            project.mkdir(parents=True)
+            repository_bin.mkdir()
+            trusted_bin.mkdir(parents=True)
+            trusted_rg = trusted_bin / "rg"
+            trusted_rg.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            trusted_rg.chmod(0o755)
+
+            for target_kind in ("absolute", "relative"):
+                with self.subTest(target=target_kind):
+                    relay = repository_bin / f"{target_kind}-relay"
+                    relay.symlink_to(trusted_rg)
+                    candidate = root / f"outside-{target_kind}" / "rg"
+                    candidate.parent.mkdir()
+                    if target_kind == "absolute":
+                        candidate.symlink_to(relay)
+                    else:
+                        candidate.symlink_to(
+                            os.path.relpath(relay, candidate.parent)
+                        )
+                    with mock.patch.object(
+                        atlas_module.shutil,
+                        "which",
+                        return_value=os.fspath(candidate),
+                    ):
+                        with self.assertRaises(atlas_module.AtlasError) as raised:
+                            atlas_module.trusted_host_executable(
+                                "rg",
+                                prohibited_roots=(project,),
+                            )
+                    self.assertIn("unsafe", str(raised.exception).lower())
+
+            for target_kind in ("absolute", "relative"):
+                with self.subTest(directory_target=target_kind):
+                    directory_relay = (
+                        repository / f"{target_kind}-directory-relay"
+                    )
+                    external_directory_alias = (
+                        root / f"outside-{target_kind}-directory-alias"
+                    )
+                    if target_kind == "absolute":
+                        directory_relay.symlink_to(
+                            trusted_bin,
+                            target_is_directory=True,
+                        )
+                        external_directory_alias.symlink_to(
+                            directory_relay,
+                            target_is_directory=True,
+                        )
+                    else:
+                        directory_relay.symlink_to(
+                            os.path.relpath(trusted_bin, directory_relay.parent),
+                            target_is_directory=True,
+                        )
+                        external_directory_alias.symlink_to(
+                            os.path.relpath(
+                                directory_relay,
+                                external_directory_alias.parent,
+                            ),
+                            target_is_directory=True,
+                        )
+                    with mock.patch.object(
+                        atlas_module.shutil,
+                        "which",
+                        return_value=os.fspath(external_directory_alias / "rg"),
+                    ):
+                        with self.assertRaises(atlas_module.AtlasError) as raised:
+                            atlas_module.trusted_host_executable(
+                                "rg",
+                                prohibited_roots=(project,),
+                            )
+                    self.assertIn("unsafe", str(raised.exception).lower())
+
+            cycle_candidate = root / "outside-cycle" / "rg"
+            cycle_relay = cycle_candidate.parent / "relay"
+            cycle_candidate.parent.mkdir()
+            cycle_candidate.symlink_to(cycle_relay)
+            cycle_relay.symlink_to(cycle_candidate)
+            with mock.patch.object(
+                atlas_module.shutil,
+                "which",
+                return_value=os.fspath(cycle_candidate),
+            ):
+                previous_handler = signal.getsignal(signal.SIGALRM)
+
+                def cycle_timeout(
+                    _signum: int,
+                    _frame: object,
+                ) -> None:
+                    raise AssertionError(
+                        "host executable symlink cycle did not terminate"
+                    )
+
+                signal.signal(signal.SIGALRM, cycle_timeout)
+                signal.setitimer(signal.ITIMER_REAL, 5)
+                try:
+                    with self.assertRaises(atlas_module.AtlasError) as raised:
+                        atlas_module.trusted_host_executable(
+                            "rg",
+                            prohibited_roots=(project,),
+                        )
+                finally:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                    signal.signal(signal.SIGALRM, previous_handler)
+            self.assertIn("unsafe", str(raised.exception).lower())
+
     def test_enclosing_repository_host_executables_are_rejected(self) -> None:
         atlas_module = self.load_atlas_subject()
         with tempfile.TemporaryDirectory(prefix="atlas enclosing repository tool ") as temp_dir:
@@ -2816,6 +3137,164 @@ class AtlasSecurityRegressionTests(unittest.TestCase):
             )
         )
 
+    def test_sticky_world_writable_exception_requires_a_trusted_owner(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        trusted_owners = {0, 501}
+        process_groups = {20}
+
+        self.assertTrue(
+            atlas_module.is_trusted_sticky_directory(
+                mock.Mock(st_mode=stat.S_IFDIR | 0o1777, st_uid=0),
+                trusted_owners,
+            )
+        )
+        self.assertTrue(
+            atlas_module.is_trusted_sticky_directory(
+                mock.Mock(st_mode=stat.S_IFDIR | 0o1777, st_uid=501),
+                trusted_owners,
+            )
+        )
+        self.assertFalse(
+            atlas_module.is_trusted_sticky_directory(
+                mock.Mock(st_mode=stat.S_IFDIR | 0o1777, st_uid=502),
+                trusted_owners,
+            )
+        )
+        self.assertFalse(
+            atlas_module.is_trusted_sticky_directory(
+                mock.Mock(st_mode=stat.S_IFDIR | 0o777, st_uid=501),
+                trusted_owners,
+            )
+        )
+        self.assertFalse(
+            atlas_module.is_trusted_sticky_directory(
+                mock.Mock(st_mode=stat.S_IFDIR | 0o1770, st_uid=501),
+                trusted_owners,
+            )
+        )
+        self.assertTrue(
+            atlas_module.is_trusted_executable_ancestor(
+                Path("/safe/tools"),
+                mock.Mock(
+                    st_mode=stat.S_IFDIR | 0o755,
+                    st_uid=501,
+                    st_gid=20,
+                ),
+                trusted_owners,
+                process_groups,
+            )
+        )
+        self.assertFalse(
+            atlas_module.is_trusted_executable_ancestor(
+                Path("/foreign/tools"),
+                mock.Mock(
+                    st_mode=stat.S_IFDIR | 0o755,
+                    st_uid=502,
+                    st_gid=20,
+                ),
+                trusted_owners,
+                process_groups,
+            )
+        )
+
+    @unittest.skipUnless(os.name == "posix", "POSIX sticky-directory regression")
+    def test_host_executable_below_trusted_sticky_ancestor_is_accepted(
+        self,
+    ) -> None:
+        tmp_root = Path("/tmp")
+        try:
+            tmp_mode = tmp_root.stat().st_mode
+        except OSError:
+            self.skipTest("/tmp is unavailable")
+        if not (
+            tmp_mode & stat.S_ISVTX
+            and tmp_mode & stat.S_IWGRP
+            and tmp_mode & stat.S_IWOTH
+        ):
+            self.skipTest("/tmp is not a sticky world-writable directory")
+
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(
+            prefix="atlas sticky host tool ",
+            dir=tmp_root,
+        ) as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            tool_directory = root / "host-tools" / "bin"
+            project.mkdir()
+            tool_directory.mkdir(parents=True)
+            executable = tool_directory / "git"
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+
+            with mock.patch.object(
+                atlas_module.shutil,
+                "which",
+                return_value=os.fspath(executable),
+            ):
+                self.assertEqual(
+                    atlas_module.trusted_host_executable(
+                        "git",
+                        prohibited_roots=(project,),
+                    ),
+                    os.fspath(executable.resolve(strict=True)),
+                )
+
+    def test_foreign_owned_host_executable_ancestor_is_rejected(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(
+            prefix="atlas foreign owned host ancestor "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            tool_parent = root / "host-tools"
+            tool_directory = tool_parent / "bin"
+            project.mkdir()
+            tool_directory.mkdir(parents=True)
+            executable = tool_directory / "git"
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+            resolved_executable = executable.resolve(strict=True)
+            resolved_tool_parent = resolved_executable.parent.parent
+            real_path_stat = atlas_module.Path.stat
+            effective_uid = os.geteuid() if hasattr(os, "geteuid") else 0
+            foreign_uid = next(
+                uid for uid in range(1, 10_000) if uid not in {0, effective_uid}
+            )
+
+            def controlled_stat(
+                path: Path,
+                *args: object,
+                **kwargs: object,
+            ) -> object:
+                metadata = real_path_stat(path, *args, **kwargs)
+                if path == resolved_tool_parent:
+                    values = list(metadata)
+                    values[4] = foreign_uid
+                    return os.stat_result(values)
+                return metadata
+
+            with (
+                mock.patch.object(
+                    atlas_module.shutil,
+                    "which",
+                    return_value=os.fspath(resolved_executable),
+                ),
+                mock.patch.object(
+                    atlas_module.Path,
+                    "stat",
+                    new=controlled_stat,
+                ),
+            ):
+                with self.assertRaises(atlas_module.AtlasError) as raised:
+                    atlas_module.trusted_host_executable(
+                        "git",
+                        prohibited_roots=(project,),
+                    )
+            self.assertIn("unsafe", str(raised.exception).lower())
+
     def test_host_executable_owner_must_be_root_or_effective_user(self) -> None:
         atlas_module = self.load_atlas_subject()
         with tempfile.TemporaryDirectory(prefix="atlas wrong owner host tool ") as temp_dir:
@@ -2837,7 +3316,13 @@ class AtlasSecurityRegressionTests(unittest.TestCase):
             def controlled_stat(path: Path, *args: object, **kwargs: object) -> object:
                 metadata = original_stat(path, *args, **kwargs)
                 if path == executable:
-                    return mock.Mock(st_mode=metadata.st_mode, st_uid=wrong_uid)
+                    return mock.Mock(
+                        st_mode=metadata.st_mode,
+                        st_uid=wrong_uid,
+                        st_nlink=metadata.st_nlink,
+                        st_file_attributes=0,
+                        st_reparse_tag=0,
+                    )
                 return metadata
 
             with (
@@ -2851,7 +3336,30 @@ class AtlasSecurityRegressionTests(unittest.TestCase):
                     )
             self.assertIn("unsafe", str(raised.exception).lower())
 
-    def test_host_executable_without_geteuid_trusts_only_root_owner(self) -> None:
+    def test_host_executable_rejects_unsupported_platform_before_path_lookup(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        path_lookup = mock.Mock(
+            side_effect=AssertionError(
+                "unsupported platform performed host executable PATH lookup"
+            )
+        )
+        with (
+            mock.patch.object(atlas_module.os, "supports_dir_fd", set(), create=True),
+            mock.patch.object(atlas_module.shutil, "which", path_lookup),
+        ):
+            with self.assertRaises(atlas_module.AtlasError) as raised:
+                atlas_module.trusted_host_executable(
+                    "git",
+                    prohibited_roots=(Path("D:/project"),),
+                )
+        self.assertIn("unsafe", str(raised.exception).lower())
+        path_lookup.assert_not_called()
+
+    def test_host_executable_without_unix_identity_apis_fails_closed_portably(
+        self,
+    ) -> None:
         atlas_module = self.load_atlas_subject()
         with tempfile.TemporaryDirectory(prefix="atlas portable owner host tool ") as temp_dir:
             root = Path(temp_dir)
@@ -2873,16 +3381,26 @@ class AtlasSecurityRegressionTests(unittest.TestCase):
                         **kwargs: object,
                     ) -> object:
                         metadata = original_stat(path, *args, **kwargs)
+                        values = list(metadata)
                         if path == executable:
-                            return mock.Mock(st_mode=metadata.st_mode, st_uid=file_uid)
+                            values[0] = stat.S_IFREG | 0o755
+                            values[4] = file_uid
+                            return os.stat_result(values)
+                        if path in executable.parents:
+                            values[0] = stat.S_IFDIR | 0o755
+                            values[4] = 0
+                            return os.stat_result(values)
                         return metadata
 
                     with (
                         mock.patch.object(atlas_module.shutil, "which", return_value=str(fake)),
                         mock.patch.object(atlas_module.Path, "stat", new=controlled_stat),
                         mock.patch.object(atlas_module.os, "geteuid", None, create=True),
+                        mock.patch.object(atlas_module.os, "getgroups", None, create=True),
+                        mock.patch.object(atlas_module.os, "getegid", None, create=True),
+                        mock.patch.object(atlas_module.os, "access", return_value=True),
                     ):
-                        if accepted:
+                        if accepted and os.name != "nt":
                             resolved = atlas_module.trusted_host_executable(
                                 "git",
                                 prohibited_roots=(project,),
@@ -2921,6 +3439,33 @@ class AtlasSecurityRegressionTests(unittest.TestCase):
                     finally:
                         atlas_module.shutil.which = original_which
                     self.assertEqual(executable, str(fake.resolve(strict=True)))
+
+                    leaf_alias = root / f"{name}-leaf-alias" / name
+                    leaf_alias.parent.mkdir()
+                    leaf_alias.symlink_to(fake)
+                    directory_alias = root / f"{name}-directory-alias"
+                    directory_alias.symlink_to(
+                        tool_directory,
+                        target_is_directory=True,
+                    )
+                    for alias_kind, candidate in (
+                        ("leaf", leaf_alias),
+                        ("directory", directory_alias / name),
+                    ):
+                        with self.subTest(name=name, alias=alias_kind):
+                            with mock.patch.object(
+                                atlas_module.shutil,
+                                "which",
+                                return_value=os.fspath(candidate),
+                            ):
+                                executable = atlas_module.trusted_host_executable(
+                                    name,
+                                    prohibited_roots=(project,),
+                                )
+                            self.assertEqual(
+                                executable,
+                                os.fspath(fake.resolve(strict=True)),
+                            )
 
     def test_nested_tool_repository_does_not_mask_an_enclosing_repository(self) -> None:
         atlas_module = self.load_atlas_subject()

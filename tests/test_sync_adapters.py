@@ -62,6 +62,41 @@ class SyncAdaptersTransactionTests(unittest.TestCase):
     def inject_reused_directory_identity(self, module, path: Path, expected):
         return self.inject_reused_identity(module, path, expected)
 
+    def inject_distinct_directory_identity(
+        self,
+        module,
+        path: Path,
+        *expected_identities,
+    ):
+        foreign = os.lstat(path)
+        original = module._identity_from_stat
+        forced_inode = foreign.st_ino + 1
+        reserved_inodes = {
+            expected.inode
+            for expected in expected_identities
+            if expected is not None
+            and expected.device == foreign.st_dev
+            and expected.file_type == stat.S_IFMT(foreign.st_mode)
+        }
+        while forced_inode in reserved_inodes:
+            forced_inode += 1
+        forced = module.ObjectIdentity(
+            device=foreign.st_dev,
+            inode=forced_inode,
+            file_type=stat.S_IFMT(foreign.st_mode),
+        )
+
+        def distinct(details):
+            if (
+                details.st_dev == foreign.st_dev
+                and details.st_ino == foreign.st_ino
+                and stat.S_IFMT(details.st_mode) == forced.file_type
+            ):
+                return forced
+            return original(details)
+
+        return patch.object(module, "_identity_from_stat", distinct)
+
     def test_repository_lock_rejects_a_concurrent_sync(self) -> None:
         with tempfile.TemporaryDirectory(prefix="atlas sync lock ") as temp_dir:
             clone = self.make_clone(temp_dir)
@@ -99,6 +134,87 @@ class SyncAdaptersTransactionTests(unittest.TestCase):
                 "--check created synchronization state",
             )
 
+    def test_check_mode_accepts_distinct_stable_path_and_handle_stat_domains(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="atlas stat domains ") as temp_dir:
+            clone = self.make_clone(temp_dir)
+            module = self.load_sync(clone)
+            original_fstat = os.fstat
+
+            class HandleStatView:
+                def __init__(self, details):
+                    self._details = details
+
+                def __getattr__(self, name):
+                    return getattr(self._details, name)
+
+                @property
+                def st_ctime_ns(self):
+                    return self._details.st_ctime_ns + 1_000_000_000
+
+            def handle_domain_fstat(descriptor):
+                return HandleStatView(original_fstat(descriptor))
+
+            with patch.object(module.os, "fstat", handle_domain_fstat):
+                self.assertEqual(module.synchronize(check=True), {})
+
+    def test_inventory_rejects_metadata_change_inside_handle_stat_domain(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="atlas handle stat race ") as temp_dir:
+            clone = self.make_clone(temp_dir)
+            module = self.load_sync(clone)
+            target = next(iter(module.ADAPTER_SKILLS.values()))
+            original_fstat = os.fstat
+            original_scandir = os.scandir
+            scan_state = {"completed": False}
+
+            class HandleStatView:
+                def __init__(self, details, ctime_offset):
+                    self._details = details
+                    self._ctime_offset = ctime_offset
+
+                def __getattr__(self, name):
+                    return getattr(self._details, name)
+
+                @property
+                def st_ctime_ns(self):
+                    return self._details.st_ctime_ns + self._ctime_offset
+
+            def changing_handle_fstat(descriptor):
+                offset = 1_000_000_000 if scan_state["completed"] else 0
+                return HandleStatView(original_fstat(descriptor), offset)
+
+            class TrackedScandir:
+                def __init__(self, *args, **kwargs):
+                    self._context = original_scandir(*args, **kwargs)
+
+                def __enter__(self):
+                    return self._context.__enter__()
+
+                def __exit__(self, *args):
+                    try:
+                        return self._context.__exit__(*args)
+                    finally:
+                        scan_state["completed"] = True
+
+            with (
+                patch.object(module.os, "fstat", changing_handle_fstat),
+                patch.object(module.os, "scandir", TrackedScandir),
+            ):
+                with self.assertRaisesRegex(module.SyncError, "changed during scan"):
+                    module._scan_reserved_sync_inventory(
+                        {target.parent: {target.name}}
+                    )
+
+    @unittest.skipUnless(os.name == "nt", "Windows stat-domain regression")
+    def test_windows_clean_check_mode_does_not_report_inventory_change(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="atlas windows check ") as temp_dir:
+            clone = self.make_clone(temp_dir)
+            module = self.load_sync(clone)
+            self.assertEqual(module.synchronize(check=True), {})
+
     def test_check_mode_fails_closed_if_state_appears_during_scan(self) -> None:
         with tempfile.TemporaryDirectory(prefix="atlas check state race ") as temp_dir:
             clone = self.make_clone(temp_dir)
@@ -125,6 +241,58 @@ class SyncAdaptersTransactionTests(unittest.TestCase):
             self.assertTrue(raced)
             self.assertEqual(
                 module.SYNC_JOURNAL_PATH.read_text(encoding="utf-8"),
+                "foreign-pending-state\n",
+            )
+
+    def test_check_mode_rejects_reserved_adapter_sibling_under_stat_domain_skew(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="atlas adapter sibling stat domains "
+        ) as temp_dir:
+            clone = self.make_clone(temp_dir)
+            module = self.load_sync(clone)
+            target = next(iter(module.ADAPTER_SKILLS.values()))
+            reserved = target.with_name(f".{target.name}.sync-foreign")
+            original_inspect = module.inspect_drift
+            original_fstat = os.fstat
+            raced = False
+
+            class HandleStatView:
+                def __init__(self, details):
+                    self._details = details
+
+                def __getattr__(self, name):
+                    return getattr(self._details, name)
+
+                @property
+                def st_ctime_ns(self):
+                    return self._details.st_ctime_ns + 1_000_000_000
+
+            def handle_domain_fstat(descriptor):
+                return HandleStatView(original_fstat(descriptor))
+
+            def create_reserved_sibling(target_path, directories, files):
+                nonlocal raced
+                drift = original_inspect(target_path, directories, files)
+                if not raced:
+                    raced = True
+                    reserved.write_text("foreign-pending-state\n", encoding="utf-8")
+                return drift
+
+            with (
+                patch.object(module.os, "fstat", handle_domain_fstat),
+                patch.object(module, "inspect_drift", create_reserved_sibling),
+            ):
+                with self.assertRaisesRegex(
+                    module.SyncError,
+                    "requires a recovery run",
+                ):
+                    module.synchronize(check=True)
+
+            self.assertTrue(raced)
+            self.assertEqual(
+                reserved.read_text(encoding="utf-8"),
                 "foreign-pending-state\n",
             )
 
@@ -1418,15 +1586,84 @@ class SyncAdaptersTransactionTests(unittest.TestCase):
             foreign_marker = first.target / "foreign-owner.txt"
             foreign_marker.write_text("preserve\n", encoding="utf-8")
             second_before = tree_digest(plans[1].target, excluded_names={"__pycache__"})
+            self.assertIsNotNone(first.target_identity)
 
-            with self.assertRaisesRegex(module.SyncError, "foreign or ambiguous"):
-                module.recover_pending_transaction()
+            with self.inject_distinct_directory_identity(
+                module,
+                first.target,
+                first.staging_identity,
+                first.target_identity,
+            ):
+                with self.assertRaisesRegex(
+                    module.SyncError,
+                    "foreign or ambiguous",
+                ):
+                    module.recover_pending_transaction()
 
             self.assertEqual(foreign_marker.read_text(encoding="utf-8"), "preserve\n")
             self.assertEqual(
                 tree_digest(plans[1].target, excluded_names={"__pycache__"}),
                 second_before,
                 "preflight changed another adapter before rejecting the foreign target",
+            )
+            self.assertTrue(first.previous.exists())
+            self.assertTrue(module.SYNC_JOURNAL_PATH.exists())
+
+    def test_recovery_refuses_a_markerless_replacement_with_reused_identity(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="atlas sync markerless reused target "
+        ) as temp_dir:
+            clone = self.make_clone(temp_dir)
+            self.drift_both(clone)
+            module = self.load_sync(clone)
+            plans = module.prepare_adapter_updates(
+                module.load_expected_adapters(), tuple(module.ADAPTER_SKILLS)
+            )
+            module.write_transaction_journal(plans, phase="prepared")
+            first = plans[0]
+            first.target.rename(first.previous)
+            first.staging.rename(first.target)
+            shutil.rmtree(first.target)
+            first.target.mkdir()
+            journal = module._read_transaction_journal()
+            old_marker = first.previous / module.ACTIVE_MARKER_NAME
+            self.assertEqual(
+                old_marker.read_bytes(),
+                module._marker_bytes(
+                    first,
+                    role="old",
+                    journal_sha256=journal.sha256,
+                ),
+            )
+            self.assertFalse(
+                (first.target / module.ACTIVE_MARKER_NAME).exists()
+            )
+            foreign_marker = first.target / "foreign-owner.txt"
+            foreign_marker.write_text("preserve\n", encoding="utf-8")
+            second_before = tree_digest(
+                plans[1].target,
+                excluded_names={"__pycache__"},
+            )
+
+            with self.inject_reused_directory_identity(
+                module,
+                first.target,
+                first.staging_identity,
+            ):
+                with self.assertRaises(module.SyncError) as raised:
+                    module.recover_pending_transaction()
+            self.assertEqual(
+                str(raised.exception),
+                "new transaction ownership marker is missing or retired",
+            )
+
+            self.assertEqual(foreign_marker.read_text(encoding="utf-8"), "preserve\n")
+            self.assertEqual(
+                tree_digest(plans[1].target, excluded_names={"__pycache__"}),
+                second_before,
+                "preflight changed another adapter before rejecting the reused target",
             )
             self.assertTrue(first.previous.exists())
             self.assertTrue(module.SYNC_JOURNAL_PATH.exists())

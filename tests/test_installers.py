@@ -94,6 +94,15 @@ class InstallerContractTests(unittest.TestCase):
     def write_fake_diff(self, directory: Path, body: str) -> Path:
         return self.write_fake_command(directory, "diff", body)
 
+    def create_hardlink_or_skip(self, source: Path, target: Path) -> None:
+        target.parent.mkdir(parents=True)
+        try:
+            os.link(source, target)
+        except OSError as exc:
+            self.skipTest(f"hardlink regression is unsupported: {exc}")
+        self.assertTrue(source.samefile(target))
+        self.assertGreater(source.stat().st_nlink, 1)
+
     def require_case_alias(self, path: Path) -> Path:
         alias = path.with_name(path.name.swapcase())
         self.assertNotEqual(alias, path, "case-alias probe did not change the path spelling")
@@ -359,6 +368,113 @@ class InstallerContractTests(unittest.TestCase):
             self.assertIn("unsafe", result.stderr.lower())
             self.assertFalse(canary.exists(), "repository-local diff was launched")
 
+    @unittest.skipUnless(os.name == "posix", "POSIX hardlink regression")
+    def test_installers_reject_user_python_hardlinked_into_source_repository(
+        self,
+    ) -> None:
+        effective_uid_getter = getattr(os, "geteuid", None)
+        self.assertTrue(callable(effective_uid_getter))
+        if effective_uid_getter() == 0:
+            self.skipTest("user-owned executable regression requires a non-root runner")
+        installers = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        for adapter_name, relative_script, config_variable in installers:
+            with self.subTest(adapter=adapter_name), tempfile.TemporaryDirectory(
+                prefix=f"atlas hardlinked python {adapter_name} "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                repository = root / "project-atlas"
+                shutil.copytree(
+                    REPO_ROOT,
+                    repository,
+                    ignore=shutil.ignore_patterns(
+                        ".git", "__pycache__", "*.pyc", ".scratch"
+                    ),
+                )
+                host_bin = root / "host-tools" / "bin"
+                canary = root / f"{adapter_name}-python-executed"
+                executable = self.write_fake_command(
+                    host_bin,
+                    "python3",
+                    ': > "$ATLAS_TEST_EXECUTABLE_CANARY"\nexit 97',
+                )
+                self.assertEqual(executable.stat().st_uid, effective_uid_getter())
+                self.create_hardlink_or_skip(
+                    executable,
+                    repository / "untrusted-hardlinks" / "python3",
+                )
+                config = root / f"{adapter_name} config"
+                result = run_command(
+                    [repository / relative_script],
+                    env={
+                        "HOME": str(root / "home"),
+                        config_variable: str(config),
+                        "PATH": f"{host_bin}{os.pathsep}{os.environ['PATH']}",
+                        "ATLAS_TEST_EXECUTABLE_CANARY": str(canary),
+                    },
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(
+                    canary.exists(),
+                    f"{adapter_name} installer launched hardlinked user Python",
+                )
+                self.assertIn("unsafe", result.stderr.lower())
+
+    @unittest.skipUnless(os.name == "posix", "POSIX hardlink regression")
+    def test_installers_reject_user_diff_hardlinked_into_source_repository(
+        self,
+    ) -> None:
+        effective_uid_getter = getattr(os, "geteuid", None)
+        self.assertTrue(callable(effective_uid_getter))
+        if effective_uid_getter() == 0:
+            self.skipTest("user-owned executable regression requires a non-root runner")
+        installers = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        for adapter_name, relative_script, config_variable in installers:
+            with self.subTest(adapter=adapter_name), tempfile.TemporaryDirectory(
+                prefix=f"atlas hardlinked diff {adapter_name} "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                repository = root / "project-atlas"
+                shutil.copytree(
+                    REPO_ROOT,
+                    repository,
+                    ignore=shutil.ignore_patterns(
+                        ".git", "__pycache__", "*.pyc", ".scratch"
+                    ),
+                )
+                host_bin = root / "host-tools" / "bin"
+                canary = root / f"{adapter_name}-diff-executed"
+                executable = self.write_fake_diff(
+                    host_bin,
+                    ': > "$ATLAS_TEST_EXECUTABLE_CANARY"\nexit 97',
+                )
+                self.assertEqual(executable.stat().st_uid, effective_uid_getter())
+                self.create_hardlink_or_skip(
+                    executable,
+                    repository / "untrusted-hardlinks" / "diff",
+                )
+                config = root / f"{adapter_name} config"
+                result = run_command(
+                    [repository / relative_script],
+                    env={
+                        "HOME": str(root / "home"),
+                        config_variable: str(config),
+                        "PATH": f"{host_bin}{os.pathsep}{os.environ['PATH']}",
+                        "ATLAS_TEST_EXECUTABLE_CANARY": str(canary),
+                    },
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(
+                    canary.exists(),
+                    f"{adapter_name} installer launched hardlinked user diff",
+                )
+                self.assertIn("unsafe", result.stderr.lower())
+
     def test_installers_reject_case_aliased_repository_python_from_path(self) -> None:
         installers = (
             ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
@@ -601,6 +717,120 @@ class InstallerContractTests(unittest.TestCase):
                     (config / "skills" / "map-project" / "SKILL.md").is_file()
                 )
 
+    @unittest.skipUnless(os.name == "posix", "POSIX sticky-directory regression")
+    def test_installers_accept_python_below_a_sticky_world_writable_ancestor(
+        self,
+    ) -> None:
+        tmp_root = Path("/tmp")
+        try:
+            tmp_mode = tmp_root.stat().st_mode
+        except OSError:
+            self.skipTest("/tmp is unavailable")
+        if not (
+            tmp_mode & stat.S_ISVTX
+            and tmp_mode & stat.S_IWGRP
+            and tmp_mode & stat.S_IWOTH
+        ):
+            self.skipTest("/tmp is not a sticky world-writable directory")
+
+        cases = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        for adapter_name, relative_script, config_variable in cases:
+            with self.subTest(adapter=adapter_name), tempfile.TemporaryDirectory(
+                prefix=f"atlas sticky python {adapter_name} ",
+                dir=tmp_root,
+            ) as temp_dir:
+                root = Path(temp_dir)
+                python_bin = root / "host-tools" / "bin"
+                self.write_fake_command(
+                    python_bin,
+                    "python3",
+                    'exec "$ATLAS_TEST_MATRIX_PYTHON" "$@"',
+                )
+                config = root / f"{adapter_name} config"
+                result = run_command(
+                    [relative_script],
+                    env={
+                        "HOME": str(root / "home"),
+                        config_variable: str(config),
+                        "PATH": (
+                            f"{python_bin}{os.pathsep}/usr/bin"
+                            f"{os.pathsep}/bin"
+                        ),
+                    },
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(
+                    (config / "skills" / "map-project" / "SKILL.md").is_file()
+                )
+
+    def test_installers_run_embedded_python_in_isolated_mode(self) -> None:
+        cases = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        attacks = (
+            (
+                "cwd-hashlib",
+                "hashlib.py",
+                (
+                    "import os\n"
+                    "with open(os.environ['ATLAS_IMPORT_CANARY'], 'w') as canary:\n"
+                    "    canary.write('cwd-hashlib\\n')\n"
+                ),
+                "cwd",
+            ),
+            (
+                "pythonpath-sitecustomize",
+                "sitecustomize.py",
+                (
+                    "import os\n"
+                    "with open(os.environ['ATLAS_IMPORT_CANARY'], 'w') as canary:\n"
+                    "    canary.write('pythonpath-sitecustomize\\n')\n"
+                ),
+                "pythonpath",
+            ),
+        )
+        for adapter_name, relative_script, config_variable in cases:
+            for attack_name, filename, payload, vector in attacks:
+                with self.subTest(
+                    adapter=adapter_name,
+                    attack=attack_name,
+                ), tempfile.TemporaryDirectory(
+                    prefix=f"atlas isolated python {adapter_name} {attack_name} "
+                ) as temp_dir:
+                    root = Path(temp_dir)
+                    attacker = root / "attacker"
+                    attacker.mkdir()
+                    (attacker / filename).write_text(payload, encoding="utf-8")
+                    canary = root / "import-canary"
+                    config = root / f"{adapter_name} config"
+                    environment = {
+                        "HOME": str(root / "home"),
+                        config_variable: str(config),
+                        "ATLAS_IMPORT_CANARY": str(canary),
+                    }
+                    cwd = REPO_ROOT
+                    if vector == "cwd":
+                        cwd = attacker
+                    else:
+                        environment["PYTHONPATH"] = str(attacker)
+                    result = run_command(
+                        [REPO_ROOT / relative_script],
+                        cwd=cwd,
+                        env=environment,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(
+                        canary.exists(),
+                        f"{adapter_name} embedded Python imported {attack_name}",
+                    )
+                    self.assertTrue(
+                        (config / "skills" / "map-project" / "SKILL.md").is_file()
+                    )
+
     def test_installers_reject_group_writable_diff_outside_repository(self) -> None:
         cases = (
             ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
@@ -751,10 +981,11 @@ class InstallerContractTests(unittest.TestCase):
     def test_installer_source_contract_rejects_untrusted_executable_owners(self) -> None:
         source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
         required_fragments = (
-            "'%u %g %Lp'",
-            "'%u %g %a'",
+            "'%u %g %p %l'",
+            "'%u %g %a %h'",
             '[[ "$stat_owner" != "0" && "$stat_owner" != "$EUID" ]]',
             "((python_mode_value & 0022))",
+            "is_trusted_executable_link_count",
             "/opt/homebrew/Cellar",
             "/usr/local/Cellar",
             "/home/linuxbrew/.linuxbrew/Cellar",
@@ -765,7 +996,9 @@ class InstallerContractTests(unittest.TestCase):
             "trusted_owners.add(effective_uid_getter())",
             'getattr(metadata, "st_uid", None) not in trusted_owners',
             "metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)",
-            "directory_mode & stat.S_IWGRP and not trusted_group_writable_cellar",
+            "is_trusted_sticky_directory",
+            "is_trusted_executable_ancestor",
+            '"$python_executable" -I -',
         )
         for fragment in required_fragments:
             with self.subTest(fragment=fragment):
@@ -843,6 +1076,134 @@ class InstallerContractTests(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("unsafe", result.stderr.lower())
 
+    def test_bootstrap_sticky_directory_exception_requires_a_trusted_owner(
+        self,
+    ) -> None:
+        source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
+
+        def extract_function(name: str) -> str:
+            marker = f"{name}() {{"
+            self.assertEqual(source.count(marker), 1)
+            start = source.index(marker)
+            return source[start : source.index("\n}", start) + len("\n}")]
+
+        harness = (
+            "set -euo pipefail\n"
+            f"{extract_function('is_process_group')}\n"
+            f"{extract_function('is_trusted_homebrew_cellar_directory')}\n"
+            f"{extract_function('is_trusted_sticky_directory')}\n"
+            f"{extract_function('is_trusted_executable_ancestor')}\n"
+            "mode_value=$((8#$4))\n"
+            'if is_trusted_executable_ancestor '
+            '"$1" "$2" "$3" "$mode_value"; then\n'
+            "  builtin printf 'safe\\n'\n"
+            "else\n"
+            "  builtin printf 'unsafe\\n' >&2\n"
+            "  exit 1\n"
+            "fi\n"
+        )
+        effective_uid = os.geteuid()
+        foreign_uid = next(
+            uid for uid in range(1, 10_000) if uid not in {0, effective_uid}
+        )
+        process_group = os.getegid()
+        cases = (
+            ("root-readonly", "/usr", 0, process_group, "755", True),
+            (
+                "user-readonly",
+                "/safe/tools",
+                effective_uid,
+                process_group,
+                "755",
+                True,
+            ),
+            (
+                "foreign-readonly",
+                "/foreign/tools",
+                foreign_uid,
+                process_group,
+                "755",
+                False,
+            ),
+            (
+                "root-sticky-world",
+                "/tmp",
+                0,
+                process_group,
+                "1777",
+                True,
+            ),
+            (
+                "user-sticky-world",
+                "/safe/tmp",
+                effective_uid,
+                process_group,
+                "1777",
+                True,
+            ),
+            (
+                "user-sticky-group-only",
+                "/safe/group",
+                effective_uid,
+                process_group,
+                "1770",
+                False,
+            ),
+            (
+                "foreign-sticky-world",
+                "/foreign/tmp",
+                foreign_uid,
+                process_group,
+                "1777",
+                False,
+            ),
+            (
+                "user-world-no-sticky",
+                "/safe/world",
+                effective_uid,
+                process_group,
+                "777",
+                False,
+            ),
+            (
+                "homebrew-group",
+                "/opt/homebrew/Cellar",
+                effective_uid,
+                process_group,
+                "775",
+                True,
+            ),
+            (
+                "generic-group",
+                "/safe/group-tools",
+                effective_uid,
+                process_group,
+                "775",
+                False,
+            ),
+        )
+        for label, path, owner, group, mode, accepted in cases:
+            with self.subTest(case=label):
+                result = run_command(
+                    [
+                        "/bin/bash",
+                        "-p",
+                        "-c",
+                        harness,
+                        "executable-ancestor-harness",
+                        path,
+                        str(owner),
+                        str(group),
+                        mode,
+                    ]
+                )
+                if accepted:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "safe\n")
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("unsafe", result.stderr.lower())
+
     def test_bootstrap_python_owner_guard_accepts_root_and_euid_only(self) -> None:
         source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
         guard_marker = 'if [[ "$stat_owner" != "0" && "$stat_owner" != "$EUID" ]]'
@@ -883,6 +1244,51 @@ class InstallerContractTests(unittest.TestCase):
                     self.assertIn("unsafe", result.stderr.lower())
                     self.assertNotIn("safe", result.stdout)
 
+    def test_bootstrap_executable_link_count_policy_is_root_only(self) -> None:
+        source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
+        function_marker = "is_trusted_executable_link_count() {"
+        self.assertEqual(source.count(function_marker), 1)
+        function_start = source.index(function_marker)
+        function_end = source.index("\n}", function_start) + len("\n}")
+        exact_function = source[function_start:function_end]
+        harness = (
+            "set -euo pipefail\n"
+            f"{exact_function}\n"
+            'if is_trusted_executable_link_count "$1" "$2"; then\n'
+            "  builtin printf 'safe\\n'\n"
+            "else\n"
+            "  builtin printf 'unsafe\\n' >&2\n"
+            "  exit 1\n"
+            "fi\n"
+        )
+        cases = (
+            ("root-multilink", "0", "78", True),
+            ("root-single-link", "0", "1", True),
+            ("user-single-link", "501", "1", True),
+            ("user-multilink", "501", "2", False),
+            ("zero-links", "0", "0", False),
+            ("non-numeric-links", "0", "many", False),
+        )
+        for label, owner, link_count, accepted in cases:
+            with self.subTest(case=label):
+                result = run_command(
+                    [
+                        "/bin/bash",
+                        "-p",
+                        "-c",
+                        harness,
+                        "link-count-harness",
+                        owner,
+                        link_count,
+                    ]
+                )
+                if accepted:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "safe\n")
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("unsafe", result.stderr.lower())
+
     def test_embedded_diff_owner_guard_accepts_root_and_euid_only(self) -> None:
         source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
         heredoc_marker = "<<'PY'\n"
@@ -896,6 +1302,12 @@ class InstallerContractTests(unittest.TestCase):
             "stat_identity",
             "has_ancestor_identity",
             "is_trusted_homebrew_cellar_directory",
+            "is_trusted_sticky_directory",
+            "is_trusted_executable_ancestor",
+            "is_trusted_executable_link_count",
+            "host_executable_name_matches",
+            "executable_path_is_link",
+            "executable_symlink_chain",
             "trusted_external_executable",
         }
         owning_nodes = [
@@ -923,6 +1335,13 @@ class InstallerContractTests(unittest.TestCase):
         trusted_external_executable = namespace["trusted_external_executable"]
         trusted_homebrew_cellar = namespace[
             "is_trusted_homebrew_cellar_directory"
+        ]
+        trusted_sticky_directory = namespace["is_trusted_sticky_directory"]
+        trusted_executable_ancestor = namespace[
+            "is_trusted_executable_ancestor"
+        ]
+        trusted_executable_link_count = namespace[
+            "is_trusted_executable_link_count"
         ]
         install_failure = namespace["InstallFailure"]
         namespace["source_skill"] = os.fspath(
@@ -959,6 +1378,59 @@ class InstallerContractTests(unittest.TestCase):
                 {process_group},
             )
         )
+        self.assertTrue(
+            trusted_sticky_directory(
+                mock.Mock(
+                    st_uid=mocked_effective_uid,
+                    st_mode=stat.S_IFDIR | 0o1777,
+                ),
+                {0, mocked_effective_uid},
+            )
+        )
+        self.assertFalse(
+            trusted_sticky_directory(
+                mock.Mock(
+                    st_uid=foreign_uid,
+                    st_mode=stat.S_IFDIR | 0o1777,
+                ),
+                {0, mocked_effective_uid},
+            )
+        )
+        safe_readonly_metadata = mock.Mock(
+            st_uid=mocked_effective_uid,
+            st_gid=process_group,
+            st_mode=stat.S_IFDIR | 0o755,
+        )
+        foreign_readonly_metadata = mock.Mock(
+            st_uid=foreign_uid,
+            st_gid=process_group,
+            st_mode=stat.S_IFDIR | 0o755,
+        )
+        self.assertTrue(
+            trusted_executable_ancestor(
+                Path("/safe/tools"),
+                safe_readonly_metadata,
+                {0, mocked_effective_uid},
+                {process_group},
+            )
+        )
+        self.assertFalse(
+            trusted_executable_ancestor(
+                Path("/foreign/tools"),
+                foreign_readonly_metadata,
+                {0, mocked_effective_uid},
+                {process_group},
+            )
+        )
+        self.assertFalse(
+            trusted_sticky_directory(
+                mock.Mock(
+                    st_uid=mocked_effective_uid,
+                    st_mode=stat.S_IFDIR | 0o777,
+                ),
+                {0, mocked_effective_uid},
+            )
+        )
         for unsafe_metadata in (
             mock.Mock(
                 st_uid=foreign_uid,
@@ -989,16 +1461,36 @@ class InstallerContractTests(unittest.TestCase):
                         {process_group},
                     )
                 )
+        self.assertTrue(
+            trusted_executable_link_count(
+                mock.Mock(st_uid=0, st_nlink=78)
+            )
+        )
+        self.assertTrue(
+            trusted_executable_link_count(
+                mock.Mock(st_uid=mocked_effective_uid, st_nlink=1)
+            )
+        )
+        for invalid_metadata in (
+            mock.Mock(st_uid=mocked_effective_uid, st_nlink=2),
+            mock.Mock(st_uid=0, st_nlink=0),
+            mock.Mock(st_uid=0, st_nlink=True),
+            mock.Mock(st_uid=0, st_nlink=1.0),
+            mock.Mock(st_uid=0, spec=["st_uid"]),
+        ):
+            with self.subTest(link_count=repr(getattr(invalid_metadata, "st_nlink", None))):
+                self.assertFalse(trusted_executable_link_count(invalid_metadata))
         cases = (
-            ("root", 0, True),
-            ("effective-user", mocked_effective_uid, True),
-            ("foreign-user", foreign_uid, False),
+            ("root-multilink", 0, 78, True),
+            ("effective-user", mocked_effective_uid, 1, True),
+            ("effective-user-multilink", mocked_effective_uid, 2, False),
+            ("foreign-user", foreign_uid, 1, False),
         )
         with tempfile.TemporaryDirectory(prefix="atlas mocked diff owner ") as temp_dir:
             executable = self.write_fake_diff(Path(temp_dir) / "bin", "exit 0")
             resolved_executable = executable.resolve(strict=True)
             real_path_stat = Path.stat
-            for owner_kind, owner_uid, accepted in cases:
+            for owner_kind, owner_uid, link_count, accepted in cases:
                 with self.subTest(owner=owner_kind, uid=owner_uid):
 
                     def stat_with_mocked_owner(
@@ -1007,9 +1499,13 @@ class InstallerContractTests(unittest.TestCase):
                         **kwargs: object,
                     ) -> os.stat_result:
                         metadata = real_path_stat(path, *args, **kwargs)
-                        if os.path.samefile(path, resolved_executable):
-                            values = list(metadata)
+                        values = list(metadata)
+                        if path == resolved_executable:
+                            values[3] = link_count
                             values[4] = owner_uid
+                            return os.stat_result(values)
+                        if path in resolved_executable.parents:
+                            values[4] = 0
                             return os.stat_result(values)
                         return metadata
 
@@ -1039,6 +1535,307 @@ class InstallerContractTests(unittest.TestCase):
                             with self.assertRaises(install_failure):
                                 trusted_external_executable("diff")
 
+            foreign_parent = resolved_executable.parent.parent
+
+            def stat_with_foreign_parent(
+                path: Path,
+                *args: object,
+                **kwargs: object,
+            ) -> os.stat_result:
+                metadata = real_path_stat(path, *args, **kwargs)
+                values = list(metadata)
+                if path == resolved_executable:
+                    values[4] = mocked_effective_uid
+                elif path in resolved_executable.parents:
+                    values[4] = 0
+                if path == foreign_parent:
+                    values[4] = foreign_uid
+                return os.stat_result(values)
+
+            with (
+                mock.patch.object(
+                    Path,
+                    "stat",
+                    new=stat_with_foreign_parent,
+                ),
+                mock.patch.object(
+                    os,
+                    "geteuid",
+                    return_value=mocked_effective_uid,
+                ),
+                mock.patch.object(
+                    shutil,
+                    "which",
+                    return_value=os.fspath(executable),
+                ),
+            ):
+                with self.assertRaises(install_failure):
+                    trusted_external_executable("diff")
+
+        if os.name == "posix":
+            tmp_root = Path("/tmp")
+            try:
+                tmp_mode = tmp_root.stat().st_mode
+            except OSError:
+                tmp_mode = 0
+            if (
+                tmp_mode & stat.S_ISVTX
+                and tmp_mode & stat.S_IWGRP
+                and tmp_mode & stat.S_IWOTH
+            ):
+                with tempfile.TemporaryDirectory(
+                    prefix="atlas embedded sticky diff ",
+                    dir=tmp_root,
+                ) as temp_dir:
+                    executable = self.write_fake_diff(
+                        Path(temp_dir) / "bin",
+                        "exit 0",
+                    )
+                    with mock.patch.object(
+                        shutil,
+                        "which",
+                        return_value=os.fspath(executable),
+                    ):
+                        self.assertEqual(
+                            trusted_external_executable("diff"),
+                            os.fspath(executable.resolve(strict=True)),
+                        )
+
+        real_diff_text = shutil.which("diff")
+        real_shell_text = shutil.which("sh")
+        self.assertIsNotNone(
+            real_diff_text,
+            "embedded PATH provenance regression requires diff",
+        )
+        self.assertIsNotNone(
+            real_shell_text,
+            "embedded semantic-name regression requires a shell",
+        )
+        real_diff = Path(real_diff_text).resolve(strict=True)
+        real_shell = Path(real_shell_text).resolve(strict=True)
+        original_source_skill = namespace["source_skill"]
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="atlas embedded path directory alias "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                repository = root / "repository"
+                fake_source_skill = (
+                    repository
+                    / "adapters"
+                    / "codex"
+                    / "skills"
+                    / "map-project"
+                )
+                (repository / ".git").mkdir(parents=True)
+                fake_source_skill.mkdir(parents=True)
+                repository_bin = repository / "bin"
+                repository_bin.mkdir()
+                (repository_bin / "diff").symlink_to(real_diff)
+                external_alias = root / "external-path-alias"
+                external_alias.symlink_to(
+                    repository_bin,
+                    target_is_directory=True,
+                )
+                namespace["source_skill"] = os.fspath(fake_source_skill)
+                with mock.patch.object(
+                    shutil,
+                    "which",
+                    return_value=os.fspath(external_alias / "diff"),
+                ):
+                    with self.assertRaises(install_failure):
+                        trusted_external_executable("diff")
+
+            with tempfile.TemporaryDirectory(
+                prefix="atlas embedded repository symlink relay "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                repository = root / "repository"
+                fake_source_skill = (
+                    repository
+                    / "adapters"
+                    / "codex"
+                    / "skills"
+                    / "map-project"
+                )
+                (repository / ".git").mkdir(parents=True)
+                fake_source_skill.mkdir(parents=True)
+                repository_bin = repository / "bin"
+                repository_bin.mkdir()
+                relay = repository_bin / "diff-relay"
+                relay.symlink_to(real_diff)
+                candidate = root / "host-tools" / "diff"
+                candidate.parent.mkdir()
+                candidate.symlink_to(relay)
+                namespace["source_skill"] = os.fspath(fake_source_skill)
+                with mock.patch.object(
+                    shutil,
+                    "which",
+                    return_value=os.fspath(candidate),
+                ):
+                    with self.assertRaises(install_failure):
+                        trusted_external_executable("diff")
+
+            with tempfile.TemporaryDirectory(
+                prefix="atlas embedded directory symlink relay "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                repository = root / "repository"
+                fake_source_skill = (
+                    repository
+                    / "adapters"
+                    / "codex"
+                    / "skills"
+                    / "map-project"
+                )
+                (repository / ".git").mkdir(parents=True)
+                fake_source_skill.mkdir(parents=True)
+                directory_relay = repository / "directory-relay"
+                directory_relay.symlink_to(
+                    os.path.relpath(real_diff.parent, directory_relay.parent),
+                    target_is_directory=True,
+                )
+                external_alias = root / "external-directory-alias"
+                external_alias.symlink_to(
+                    os.path.relpath(directory_relay, external_alias.parent),
+                    target_is_directory=True,
+                )
+                namespace["source_skill"] = os.fspath(fake_source_skill)
+                with mock.patch.object(
+                    shutil,
+                    "which",
+                    return_value=os.fspath(external_alias / real_diff.name),
+                ):
+                    with self.assertRaises(install_failure):
+                        trusted_external_executable("diff")
+
+            with tempfile.TemporaryDirectory(
+                prefix="atlas embedded host tool symlink cycle "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                fake_source_skill = (
+                    root
+                    / "repository"
+                    / "adapters"
+                    / "codex"
+                    / "skills"
+                    / "map-project"
+                )
+                fake_source_skill.mkdir(parents=True)
+                candidate = root / "host-tools" / "diff"
+                relay = candidate.parent / "relay"
+                candidate.parent.mkdir()
+                candidate.symlink_to(relay)
+                relay.symlink_to(candidate)
+                namespace["source_skill"] = os.fspath(fake_source_skill)
+                with mock.patch.object(
+                    shutil,
+                    "which",
+                    return_value=os.fspath(candidate),
+                ):
+                    previous_handler = signal.getsignal(signal.SIGALRM)
+
+                    def cycle_timeout(
+                        _signum: int,
+                        _frame: object,
+                    ) -> None:
+                        raise AssertionError(
+                            "embedded executable symlink cycle did not terminate"
+                        )
+
+                    signal.signal(signal.SIGALRM, cycle_timeout)
+                    signal.setitimer(signal.ITIMER_REAL, 5)
+                    try:
+                        with self.assertRaises(install_failure):
+                            trusted_external_executable("diff")
+                    finally:
+                        signal.setitimer(signal.ITIMER_REAL, 0)
+                        signal.signal(signal.SIGALRM, previous_handler)
+
+            with tempfile.TemporaryDirectory(
+                prefix="atlas embedded mismatched host tool "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                fake_source_skill = (
+                    root
+                    / "repository"
+                    / "adapters"
+                    / "codex"
+                    / "skills"
+                    / "map-project"
+                )
+                fake_source_skill.mkdir(parents=True)
+                candidate = root / "host-tools" / "diff"
+                candidate.parent.mkdir()
+                candidate.symlink_to(real_shell)
+                namespace["source_skill"] = os.fspath(fake_source_skill)
+                with mock.patch.object(
+                    shutil,
+                    "which",
+                    return_value=os.fspath(candidate),
+                ):
+                    with self.assertRaises(install_failure):
+                        trusted_external_executable("diff")
+        finally:
+            namespace["source_skill"] = original_source_skill
+
+    def test_bootstrap_executable_symlink_cycle_is_bounded_and_rejected(
+        self,
+    ) -> None:
+        source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
+
+        def extract_function(name: str) -> str:
+            marker = f"{name}() {{"
+            self.assertEqual(source.count(marker), 1)
+            start = source.index(marker)
+            return source[start : source.index("\n}", start) + len("\n}")]
+
+        trusted_readlink = shutil.which("readlink")
+        self.assertIsNotNone(
+            trusted_readlink,
+            "bootstrap symlink-cycle regression requires readlink",
+        )
+        harness = (
+            "set -euo pipefail\n"
+            'trusted_readlink="$1"\n'
+            "physical_directory() {\n"
+            "  builtin cd -P -- \"$1\"\n"
+            "  builtin pwd -P\n"
+            "}\n"
+            f"{extract_function('normalize_absolute_path')}\n"
+            "path_has_source_repository_ancestor() { return 1; }\n"
+            f"{extract_function('rewrite_first_symlink')}\n"
+            f"{extract_function('resolve_executable_path')}\n"
+            'if resolve_executable_path "$2"; then\n'
+            "  builtin printf 'unexpected-success\\n'\n"
+            "  exit 91\n"
+            "fi\n"
+            "builtin printf 'unsafe\\n' >&2\n"
+        )
+        with tempfile.TemporaryDirectory(
+            prefix="atlas bootstrap executable cycle "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            candidate = root / "python3"
+            relay = root / "python-relay"
+            candidate.symlink_to(relay)
+            relay.symlink_to(candidate)
+            result = run_command(
+                [
+                    "/bin/bash",
+                    "-p",
+                    "-c",
+                    harness,
+                    "bootstrap-cycle-harness",
+                    trusted_readlink,
+                    candidate,
+                ],
+                timeout=5,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("unsafe", result.stderr.lower())
+
     def test_stat_owner_and_mode_parses_gnu_fallback_output(self) -> None:
         source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
         function_marker = "stat_owner_and_mode() {"
@@ -1057,9 +1854,9 @@ class InstallerContractTests(unittest.TestCase):
                 (
                     'printf "%s\\n" "$*" >> "$ATLAS_TEST_STAT_LOG"\n'
                     'if [ "$1" = "-f" ]; then exit 64; fi\n'
-                    'if [ "$1" = "-c" ] && [ "$2" = "%u %g %a" ] && '
+                    'if [ "$1" = "-c" ] && [ "$2" = "%u %g %a %h" ] && '
                     '[ "$3" = "--" ] && [ "$4" = "$ATLAS_TEST_STAT_TARGET" ]; then\n'
-                    '  printf "123 456 755\\n"\n'
+                    '  printf "123 456 755 2\\n"\n'
                     "  exit 0\n"
                     "fi\n"
                     "exit 65"
@@ -1071,7 +1868,8 @@ class InstallerContractTests(unittest.TestCase):
                 'target="$2"\n'
                 f"{exact_function}\n"
                 'stat_owner_and_mode "$target"\n'
-                'builtin printf "%s:%s:%s\\n" "$stat_owner" "$stat_group" "$stat_mode"\n'
+                'builtin printf "%s:%s:%s:%s\\n" '
+                '"$stat_owner" "$stat_group" "$stat_mode" "$stat_link_count"\n'
             )
             result = run_command(
                 [
@@ -1089,12 +1887,12 @@ class InstallerContractTests(unittest.TestCase):
                 },
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout, "123:456:755\n")
+            self.assertEqual(result.stdout, "123:456:755:2\n")
             self.assertEqual(
                 call_log.read_text(encoding="utf-8").splitlines(),
                 [
-                    f"-f %u %g %Lp -- {REPO_ROOT}",
-                    f"-c %u %g %a -- {REPO_ROOT}",
+                    f"-f %u %g %p %l -- {REPO_ROOT}",
+                    f"-c %u %g %a %h -- {REPO_ROOT}",
                 ],
             )
 
@@ -1285,6 +2083,9 @@ class InstallerContractTests(unittest.TestCase):
                 "world-writable",
                 "world-writable-parent",
                 "symlink-into-repository",
+                "directory-alias-into-repository",
+                "directory-relay-through-repository",
+                "leaf-relay-through-repository",
             ):
                 with self.subTest(
                     adapter=adapter_name,
@@ -1327,7 +2128,7 @@ class InstallerContractTests(unittest.TestCase):
                             f": > {str(canary)!r}\nexit 97",
                         )
                         unsafe_bin.parent.chmod(0o777)
-                    else:
+                    elif scenario == "symlink-into-repository":
                         repository_bin = repository / "bin"
                         self.write_fake_command(
                             repository_bin,
@@ -1336,6 +2137,44 @@ class InstallerContractTests(unittest.TestCase):
                         )
                         unsafe_bin.mkdir()
                         (unsafe_bin / "python3").symlink_to(repository_bin / "python3")
+                    elif scenario == "directory-alias-into-repository":
+                        repository_bin = repository / "bin"
+                        repository_bin.mkdir()
+                        (repository_bin / "python3").symlink_to(
+                            Path(sys.executable).resolve(strict=True)
+                        )
+                        unsafe_bin.symlink_to(
+                            repository_bin,
+                            target_is_directory=True,
+                        )
+                    elif scenario == "directory-relay-through-repository":
+                        trusted_bin = root / "trusted-host" / "bin"
+                        trusted_bin.mkdir(parents=True)
+                        (trusted_bin / "python3").symlink_to(
+                            Path(sys.executable).resolve(strict=True)
+                        )
+                        repository_relay = repository / "directory-relay"
+                        repository_relay.symlink_to(
+                            os.path.relpath(
+                                trusted_bin,
+                                repository_relay.parent,
+                            ),
+                            target_is_directory=True,
+                        )
+                        unsafe_bin.symlink_to(
+                            os.path.relpath(
+                                repository_relay,
+                                unsafe_bin.parent,
+                            ),
+                            target_is_directory=True,
+                        )
+                    else:
+                        repository_bin = repository / "bin"
+                        repository_bin.mkdir()
+                        relay = repository_bin / "python-relay"
+                        relay.symlink_to(Path(sys.executable).resolve(strict=True))
+                        unsafe_bin.mkdir()
+                        (unsafe_bin / "python3").symlink_to(relay)
                     config = root / f"{adapter_name} config"
                     result = run_command(
                         [clone / relative_script],

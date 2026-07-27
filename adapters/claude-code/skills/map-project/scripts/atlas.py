@@ -781,13 +781,17 @@ def canonical_directory_path(path: Path) -> Path:
     return absolute
 
 
+def secure_directory_descriptor_operations_available() -> bool:
+    return (
+        os.open in getattr(os, "supports_dir_fd", set())
+        and bool(getattr(os, "O_NOFOLLOW", 0))
+    )
+
+
 def open_directory_descriptor(path: Path) -> int:
     """Open an absolute directory component-by-component without following links."""
 
-    if (
-        os.open not in getattr(os, "supports_dir_fd", set())
-        or not getattr(os, "O_NOFOLLOW", 0)
-    ):
+    if not secure_directory_descriptor_operations_available():
         raise AtlasError(
             "secure directory-descriptor operations are unavailable on this platform"
         )
@@ -1434,6 +1438,19 @@ def is_trusted_homebrew_cellar_directory(
     )
 
 
+def is_trusted_sticky_directory(
+    metadata: os.stat_result,
+    trusted_owners: set[int],
+) -> bool:
+    """Allow only root- or account-owned sticky world-writable ancestors."""
+
+    return (
+        getattr(metadata, "st_uid", None) in trusted_owners
+        and bool(metadata.st_mode & stat.S_IWOTH)
+        and bool(metadata.st_mode & stat.S_ISVTX)
+    )
+
+
 def is_trusted_macos_applications_directory(
     directory: Path,
     metadata: os.stat_result,
@@ -1451,6 +1468,127 @@ def is_trusted_macos_applications_directory(
     )
 
 
+def is_trusted_executable_ancestor(
+    directory: Path,
+    metadata: os.stat_result,
+    trusted_owners: set[int],
+    process_groups: set[int],
+) -> bool:
+    """Accept only ancestors controlled by root or the invoking account."""
+
+    if getattr(metadata, "st_uid", None) not in trusted_owners:
+        return False
+    if not metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        return True
+    return (
+        is_trusted_sticky_directory(metadata, trusted_owners)
+        or is_trusted_homebrew_cellar_directory(
+            directory,
+            metadata,
+            trusted_owners,
+            process_groups,
+        )
+        or is_trusted_macos_applications_directory(
+            directory,
+            metadata,
+            process_groups,
+        )
+    )
+
+
+def host_executable_name_matches(
+    name: str,
+    executable: Path,
+    *,
+    platform_name: str = os.name,
+) -> bool:
+    """Match a requested PATH tool to its resolved portable executable name."""
+
+    if platform_name == "nt":
+        expected = name.casefold()
+        actual = executable.name.casefold()
+        return actual in {expected, f"{expected}.exe"}
+    return executable.name == name
+
+
+def executable_link_count_is_trusted(metadata: os.stat_result) -> bool:
+    """Reject user-controlled hardlinks while retaining root-owned system tools."""
+
+    link_count = getattr(metadata, "st_nlink", None)
+    return (
+        type(link_count) is int
+        and link_count > 0
+        and (link_count == 1 or getattr(metadata, "st_uid", None) == 0)
+    )
+
+
+def executable_path_is_link(metadata: os.stat_result) -> bool:
+    """Recognize POSIX symlinks and Windows name-surrogate reparse points."""
+
+    if stat.S_ISLNK(metadata.st_mode):
+        return True
+    reparse_tag = getattr(metadata, "st_reparse_tag", None)
+    if reparse_tag is not None and not isinstance(reparse_tag, int):
+        raise OSError("invalid executable reparse metadata")
+    supported_reparse_tags = {
+        tag
+        for tag in (
+            getattr(stat, "IO_REPARSE_TAG_SYMLINK", None),
+            getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", None),
+        )
+        if isinstance(tag, int)
+    }
+    if reparse_tag in supported_reparse_tags:
+        return True
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    file_attributes = getattr(metadata, "st_file_attributes", 0)
+    if not isinstance(file_attributes, int):
+        raise OSError("invalid executable reparse metadata")
+    if reparse_flag and file_attributes & reparse_flag:
+        raise OSError("unsupported executable reparse point")
+    return False
+
+
+def executable_symlink_chain(
+    candidate: Path,
+    *,
+    maximum_hops: int = 32,
+) -> tuple[Path, ...]:
+    """Trace leaf and directory symlinks without hiding an intermediate supplier."""
+
+    current = Path(os.path.abspath(candidate))
+    chain = [current]
+    hops = 0
+    while True:
+        anchor = Path(current.anchor)
+        prefix = anchor
+        anchor_parts = len(anchor.parts)
+        symlink_found = False
+        for index, component in enumerate(
+            current.parts[anchor_parts:],
+            start=anchor_parts,
+        ):
+            prefix = prefix / component
+            metadata = prefix.lstat()
+            if not executable_path_is_link(metadata):
+                continue
+            if hops >= maximum_hops:
+                raise OSError("host executable symlink chain is too deep")
+            hops += 1
+            target = Path(os.readlink(prefix))
+            if not target.is_absolute():
+                target = prefix.parent / target
+            remainder = current.parts[index + 1 :]
+            if remainder:
+                target = target.joinpath(*remainder)
+            current = Path(os.path.abspath(target))
+            chain.extend((prefix, current))
+            symlink_found = True
+            break
+        if not symlink_found:
+            return tuple(chain)
+
+
 def trusted_host_executable(
     name: str,
     *,
@@ -1458,72 +1596,77 @@ def trusted_host_executable(
 ) -> str | None:
     """Resolve a PATH tool without ever executing one supplied by the project."""
 
+    if not secure_directory_descriptor_operations_available():
+        raise AtlasError(f"host {name} executable is unsafe")
     candidate = shutil.which(name)
     if candidate is None:
         return None
     try:
-        executable = Path(candidate).resolve(strict=True)
+        candidate_path = Path(os.path.abspath(candidate))
+        candidate_chain = executable_symlink_chain(candidate_path)
+        resolved_candidate_parents = tuple(
+            path.parent.resolve(strict=True) for path in candidate_chain
+        )
+        executable = candidate_chain[-1].resolve(strict=True)
         metadata = executable.stat()
         resolved_roots = tuple(root.resolve(strict=True) for root in prohibited_roots)
-    except OSError:
+    except (OSError, RuntimeError):
         raise AtlasError(f"host {name} executable is unsafe") from None
     effective_uid_getter = getattr(os, "geteuid", None)
     trusted_owners = {0}
     if callable(effective_uid_getter):
         trusted_owners.add(effective_uid_getter())
-    try:
-        process_groups = set(os.getgroups())
-    except OSError:
-        raise AtlasError(f"host {name} executable is unsafe") from None
+    process_groups: set[int] = set()
+    supplementary_groups_getter = getattr(os, "getgroups", None)
+    if callable(supplementary_groups_getter):
+        try:
+            process_groups.update(supplementary_groups_getter())
+        except OSError:
+            raise AtlasError(f"host {name} executable is unsafe") from None
     effective_gid_getter = getattr(os, "getegid", None)
     if callable(effective_gid_getter):
         process_groups.add(effective_gid_getter())
     if (
-        not stat.S_ISREG(metadata.st_mode)
+        not host_executable_name_matches(name, executable)
+        or not stat.S_ISREG(metadata.st_mode)
         or getattr(metadata, "st_uid", None) not in trusted_owners
+        or not executable_link_count_is_trusted(metadata)
         or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
         or not os.access(executable, os.X_OK)
     ):
         raise AtlasError(f"host {name} executable is unsafe")
-    for root in resolved_roots:
-        try:
-            shared_ancestor = shared_path_ancestor(executable.parent, root)
-        except AtlasError:
-            raise AtlasError(f"host {name} executable is unsafe") from None
-        if shared_ancestor is None:
-            continue
-        if shared_ancestor == root:
-            raise AtlasError(f"host {name} executable is unsafe")
-        try:
-            shares_repository = git_metadata_present(shared_ancestor)
-        except AtlasError:
-            raise AtlasError(f"host {name} executable is unsafe") from None
-        if shares_repository:
-            raise AtlasError(f"host {name} executable is unsafe")
+    supplied_parents = (
+        *(path.parent for path in candidate_chain),
+        *resolved_candidate_parents,
+        executable.parent,
+    )
+    for supplied_parent in supplied_parents:
+        for root in resolved_roots:
+            try:
+                shared_ancestor = shared_path_ancestor(supplied_parent, root)
+            except AtlasError:
+                raise AtlasError(f"host {name} executable is unsafe") from None
+            if shared_ancestor is None:
+                continue
+            if shared_ancestor == root:
+                raise AtlasError(f"host {name} executable is unsafe")
+            try:
+                shares_repository = git_metadata_present(shared_ancestor)
+            except AtlasError:
+                raise AtlasError(f"host {name} executable is unsafe") from None
+            if shares_repository:
+                raise AtlasError(f"host {name} executable is unsafe")
     for directory in executable.parents:
         try:
             directory_metadata = directory.stat()
         except OSError:
             raise AtlasError(f"host {name} executable is unsafe") from None
-        directory_mode = directory_metadata.st_mode
-        trusted_group_writable_cellar = is_trusted_homebrew_cellar_directory(
+        if not is_trusted_executable_ancestor(
             directory,
             directory_metadata,
             trusted_owners,
             process_groups,
-        )
-        trusted_macos_applications = is_trusted_macos_applications_directory(
-            directory,
-            directory_metadata,
-            process_groups,
-        )
-        if (
-            directory_mode & stat.S_IWGRP
-            and not trusted_group_writable_cellar
-            and not trusted_macos_applications
         ):
-            raise AtlasError(f"host {name} executable is unsafe")
-        if directory_mode & stat.S_IWOTH and not directory_mode & stat.S_ISVTX:
             raise AtlasError(f"host {name} executable is unsafe")
     return os.fspath(executable)
 
