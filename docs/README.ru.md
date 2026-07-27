@@ -19,7 +19,7 @@
 | Как запускать типовые сценарии | [`examples.ru.md`](./examples.ru.md) |
 | Как карта превращается в проверенное изменение | [`case-study.ru.md`](./case-study.ru.md) |
 | Что можно читать, менять и публиковать | [`SECURITY.md`](../SECURITY.md) |
-| Что benchmark может и не может утверждать | [`benchmarks/`](../benchmarks/) |
+| Что benchmark может и не может утверждать | [Эффективность и benchmark](./effectiveness.ru.md) |
 
 `core/PROTOCOL.md` — нормативный контракт. Документы его объясняют, а адаптеры
 переводят discovery и permissions конкретного host. Ни один адаптер не может

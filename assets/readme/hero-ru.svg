@@ -1,57 +1,71 @@
 <svg xmlns="http://www.w3.org/2000/svg"
-     width="1200" height="520" viewBox="0 0 1200 520"
+     width="1200" height="620" viewBox="0 0 1200 620"
      role="img" aria-labelledby="title desc">
-  <title id="title">Project Atlas — карта продукта с доказательствами</title>
-  <desc id="desc">Минималистичный маршрут от текущего кода через классифицированные утверждения и целевую задачу к проверенному новому состоянию.</desc>
+  <title id="title">Project Atlas — не знакомьте ИИ с проектом заново</title>
+  <desc id="desc">В иллюстративном открытом модельном сценарии на десять задач расход снижается с 700 до 570 тысяч токенов, окупаемость начинается с шестой задачи, а оптимистичный сценарий показывает снижение до 51,1 процента. Это открытая модель, а не полевой замер и не среднее по пользователям.</desc>
 
-  <rect width="1200" height="520" rx="20" fill="#0A0C0F"/>
-  <rect x="1" y="1" width="1198" height="518" rx="19"
+  <rect width="1200" height="620" rx="20" fill="#0A0C0F"/>
+  <rect x="1" y="1" width="1198" height="618" rx="19"
         fill="none" stroke="#343A43" stroke-width="2"/>
 
   <g font-family="Arial, sans-serif">
-    <text x="64" y="54" fill="#8D98A6" font-size="18" font-weight="650"
-          letter-spacing="2">PROJECT ATLAS / ПРОТОКОЛ ДОКАЗАТЕЛЬСТВ</text>
-    <text x="1136" y="54" fill="#5EA8FF" font-size="18" font-weight="700"
+    <text x="60" y="54" fill="#8D98A6" font-size="20" font-weight="700"
+          letter-spacing="2">PROJECT ATLAS / ЭКОНОМИКА КОНТЕКСТА</text>
+    <text x="1140" y="54" fill="#5EA8FF" font-size="20" font-weight="700"
           text-anchor="end">v0.1.1</text>
-    <path d="M64 78H1136" stroke="#343A43" stroke-width="2"/>
+    <path d="M60 80H1140" stroke="#343A43" stroke-width="2"/>
 
-    <text x="62" y="170" fill="#F4F6F8" font-size="64" font-weight="720"
-          letter-spacing="-1.5">КАРТА ПРОДУКТА.</text>
-    <text x="62" y="244" fill="#F4F6F8" font-size="54" font-weight="720"
-          letter-spacing="-1.2">МАРШРУТ С ДОКАЗАТЕЛЬСТВАМИ.</text>
-    <text x="64" y="296" fill="#8D98A6" font-size="20" font-weight="620"
-          letter-spacing="1.3">CONFIRMED / INFERENCE / HYPOTHESIS / TARGET / UNKNOWN</text>
+    <text x="60" y="156" fill="#F4F6F8" font-size="50" font-weight="700"
+          letter-spacing="-1">НЕ ЗНАКОМЬ ИИ С ПРОЕКТОМ ЗАНОВО.</text>
+    <text x="60" y="202" fill="#8D98A6" font-size="22" font-weight="600">
+      Одна проверяемая карта сохраняет контекст между задачами и сессиями.
+    </text>
+    <path d="M60 240H1140" stroke="#343A43" stroke-width="2"/>
 
-    <path d="M88 396H1112" stroke="#5EA8FF" stroke-width="2"/>
-    <g fill="#0A0C0F" stroke="#5EA8FF" stroke-width="3">
-      <circle cx="88" cy="396" r="8"/>
-      <circle cx="344" cy="396" r="8"/>
-      <circle cx="600" cy="396" r="8"/>
-      <circle cx="856" cy="396" r="8"/>
-      <circle cx="1112" cy="396" r="8"/>
+    <path d="M416 274V498" stroke="#252A31" stroke-width="2"/>
+    <path d="M784 274V498" stroke="#252A31" stroke-width="2"/>
+
+    <g>
+      <text x="60" y="352" fill="#7EE6B1" font-size="64" font-weight="700"
+            letter-spacing="-1.5">−18,6%</text>
+      <text x="60" y="394" fill="#F4F6F8" font-size="20" font-weight="700"
+            letter-spacing=".5">ИЛЛЮСТРАТИВНЫЙ</text>
+      <text x="60" y="426" fill="#F4F6F8" font-size="20" font-weight="700"
+            letter-spacing=".5">СЦЕНАРИЙ · 10 ЗАДАЧ</text>
+      <text x="60" y="466" fill="#8D98A6" font-size="24" font-weight="600">
+        700k → 570k токенов
+      </text>
     </g>
 
-    <g fill="#8D98A6" font-size="16" font-weight="700" letter-spacing="1.2">
-      <text x="88" y="362" text-anchor="middle">01</text>
-      <text x="344" y="362" text-anchor="middle">02</text>
-      <text x="600" y="362" text-anchor="middle">03</text>
-      <text x="856" y="362" text-anchor="middle">04</text>
-      <text x="1112" y="362" text-anchor="middle">05</text>
-    </g>
-    <g fill="#F4F6F8" font-size="22" font-weight="700" letter-spacing=".6">
-      <text x="88" y="444" text-anchor="middle">CURRENT</text>
-      <text x="344" y="444" text-anchor="middle">УТВЕРЖДЕНИЯ</text>
-      <text x="600" y="444" text-anchor="middle">TARGET</text>
-      <text x="856" y="444" text-anchor="middle">ПРАВКА</text>
-      <text x="1112" y="444" text-anchor="middle">VERIFIED</text>
-    </g>
-    <g fill="#8D98A6" font-size="16" font-weight="550">
-      <text x="88" y="476" text-anchor="middle">что есть</text>
-      <text x="344" y="476" text-anchor="middle">со ссылками</text>
-      <text x="600" y="476" text-anchor="middle">задача</text>
-      <text x="856" y="476" text-anchor="middle">с тестами</text>
-      <text x="1112" y="476" text-anchor="middle">новый current</text>
+    <g>
+      <text x="440" y="352" fill="#5EA8FF" font-size="64" font-weight="700"
+            letter-spacing="-1.5">6-я</text>
+      <text x="440" y="394" fill="#F4F6F8" font-size="20" font-weight="700"
+            letter-spacing=".5">ЗАДАЧА ОКУПАЕМОСТИ</text>
+      <text x="440" y="426" fill="#F4F6F8" font-size="20" font-weight="700"
+            letter-spacing=".5">В ЭТОМ СЦЕНАРИИ</text>
+      <text x="440" y="466" fill="#8D98A6" font-size="24" font-weight="600">
+        170k — цена карты
+      </text>
     </g>
 
+    <g>
+      <text x="808" y="352" fill="#F4F6F8" font-size="56" font-weight="700"
+            letter-spacing="-1.5">ДО −51,1%</text>
+      <text x="808" y="394" fill="#F4F6F8" font-size="20" font-weight="700"
+            letter-spacing=".5">ОПТИМИСТИЧНЫЙ</text>
+      <text x="808" y="426" fill="#F4F6F8" font-size="20" font-weight="700"
+            letter-spacing=".5">СЦЕНАРИЙ · 10 ЗАДАЧ</text>
+      <text x="808" y="466" fill="#8D98A6" font-size="24" font-weight="600">
+        900k → 440k токенов
+      </text>
+    </g>
+
+    <path d="M60 530H1140" stroke="#343A43" stroke-width="2"/>
+    <circle cx="71" cy="572" r="6" fill="#F2C66D"/>
+    <text x="92" y="579" fill="#C7CED8" font-size="20" font-weight="700"
+          letter-spacing=".8">ОТКРЫТАЯ МОДЕЛЬ · НЕ ПОЛЕВОЙ ЗАМЕР</text>
+    <text x="1140" y="579" fill="#8D98A6" font-size="20" font-weight="600"
+          text-anchor="end">ТОКЕНЫ · КУМУЛЯТИВНО</text>
   </g>
 </svg>
