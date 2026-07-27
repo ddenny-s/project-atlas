@@ -2711,7 +2711,24 @@ def choose_mode(
         r"\b(?:personal data|personally identifiable|health data|pii)\b"
     )
     financial_pattern = re.compile(
-        r"\b(?:financial\s+(?:data|records?|transactions?|settlements?)|payments?|settlements?)\b"
+        r"\bfinancial\s+(?:data|records?|transactions?|payments?|settlements?)\b|"
+        r"\b(?:accept(?:s|ed|ing)?|authoriz(?:e|es|ed|ing)|"
+        r"captur(?:e|es|ed|ing)|handl(?:e|es|ed|ing)|"
+        r"process(?:es|ed|ing)?|reconcil(?:e|es|ed|ing)|"
+        r"record(?:s|ed|ing)?|refund(?:s|ed|ing)?|settl(?:e|es|ed|ing))\s+"
+        r"(?:[a-z][a-z0-9_-]*\s+){0,2}(?:payments?|settlements?)\b|"
+        r"\b(?:payments?|settlements?)[\s-]+"
+        r"(?:(?:processing|orchestration)[\s-]+)?"
+        r"(?:api|data|engine|gateway|ledger|platform|processor|records?|service|"
+        r"system|transactions?|webhook|worker)\b|"
+        r"\b(?:payments?|settlements?)\s+"
+        r"(?:(?:are|is|were|was)\s+(?:being\s+)?|"
+        r"(?:be|being|been)\s+|"
+        r"(?:can|could|may|might|must|shall|should|will|would)\s+be\s+|"
+        r"(?:has|have|had)\s+been\s+|"
+        r"(?:get|gets|got|getting)\s+)?"
+        r"(?:accepted|authorized|captured|handled|processed|reconciled|recorded|"
+        r"refunded|settled)\b"
     )
     legacy_pattern = re.compile(
         r"\b(?:legacy|deprecated|obsolete)\s+"

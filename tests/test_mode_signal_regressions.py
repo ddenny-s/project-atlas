@@ -136,6 +136,95 @@ class ModeSignalRegressionTests(unittest.TestCase):
                 self.assertEqual(payload["mode"], "STANDARD")
                 self.assertTrue(payload["signals"]["automatic_decisions"])
 
+    def test_financial_signal_requires_product_context_not_cost_metaphor(self) -> None:
+        cases = {
+            "cost_metaphor": (
+                "# Atlas\n\n"
+                "The map has an expensive first payment, then later tasks reuse it.\n",
+                False,
+            ),
+            "financial_data": (
+                "# Records\n\nThe service stores financial data for customers.\n",
+                True,
+            ),
+            "payment_action": (
+                "# Checkout\n\nThe service processes customer payments.\n",
+                True,
+            ),
+            "payment_product": (
+                "# Checkout\n\nThis payment processor exposes a local API.\n",
+                True,
+            ),
+            "settling_action": (
+                "# Settlement\n\nThe worker is settling customer payments.\n",
+                True,
+            ),
+            "payment_processing_service": (
+                "# Checkout\n\nThe app is a payment processing service.\n",
+                True,
+            ),
+            "passive_payment_action": (
+                "# Checkout\n\nCustomer payments are processed by the worker.\n",
+                True,
+            ),
+            "progressive_passive_payment_action": (
+                "# Checkout\n\nCustomer payments are being processed by the worker.\n",
+                True,
+            ),
+            "modal_passive_payment_action": (
+                "# Checkout\n\nCustomer payments can be processed by the worker.\n",
+                True,
+            ),
+            "future_passive_payment_action": (
+                "# Checkout\n\nCustomer payments will be processed by the worker.\n",
+                True,
+            ),
+            "required_passive_payment_action": (
+                "# Checkout\n\nCustomer payments must be processed by the worker.\n",
+                True,
+            ),
+            "get_passive_payment_action": (
+                "# Checkout\n\nCustomer payments get processed by the worker.\n",
+                True,
+            ),
+            "payments_platform": (
+                "# Checkout\n\nThe payments platform exposes a local API.\n",
+                True,
+            ),
+            "payment_orchestration_platform": (
+                "# Checkout\n\nThis payment orchestration platform routes transactions.\n",
+                True,
+            ),
+            "settlement_engine": (
+                "# Settlement\n\nThe settlement engine reconciles ledger entries.\n",
+                True,
+            ),
+            "hyphenated_payment_processing_service": (
+                "# Checkout\n\nThe app is a payment-processing service.\n",
+                True,
+            ),
+            "hyphenated_payment_orchestration_platform": (
+                "# Checkout\n\nThis payment-orchestration platform routes transactions.\n",
+                True,
+            ),
+            "hyphenated_settlement_engine": (
+                "# Settlement\n\nThe settlement-engine reconciles ledger entries.\n",
+                True,
+            ),
+        }
+        for case_name, (readme, expected) in cases.items():
+            with self.subTest(case=case_name), tempfile.TemporaryDirectory(
+                prefix=f"atlas financial evidence {case_name} "
+            ) as temp_dir:
+                project = Path(temp_dir) / "project"
+                project.mkdir()
+                (project / "README.md").write_text(readme, encoding="utf-8")
+
+                result = run_atlas("select-mode", "--project", project)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertEqual(payload["signals"]["financial_data"], expected)
+
     def test_no_readme_source_declarations_supply_bounded_risk_evidence(self) -> None:
         for prefix in ("", "\ufeff"):
             with self.subTest(utf8_bom=bool(prefix)), tempfile.TemporaryDirectory(
