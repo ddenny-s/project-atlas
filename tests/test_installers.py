@@ -2226,6 +2226,63 @@ class InstallerContractTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assert_codex_standalone_installed(root / "codex home" / "skills" / "map-project")
 
+    def test_codex_nested_cleanup_does_not_require_shutil_rmtree_dir_fd(
+        self,
+    ) -> None:
+        script = REPO_ROOT / "scripts" / "install.sh"
+        with tempfile.TemporaryDirectory(
+            prefix="atlas python310 nested cleanup "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            fake_bin = root / "fake-bin"
+            guard = root / "python-rmtree-guard.py"
+            guard.write_text(
+                "import shutil\n"
+                "import sys\n"
+                "\n"
+                "_original_rmtree = shutil.rmtree\n"
+                "\n"
+                "def reject_dir_fd(*args, **kwargs):\n"
+                "    if 'dir_fd' in kwargs:\n"
+                "        raise TypeError(\"rmtree() got an unexpected keyword argument 'dir_fd'\")\n"
+                "    return _original_rmtree(*args, **kwargs)\n"
+                "\n"
+                "shutil.rmtree = reject_dir_fd\n"
+                "source = sys.stdin.read()\n"
+                "scope = {'__name__': '__main__', '__file__': '<stdin>'}\n"
+                "exec(compile(source, '<stdin>', 'exec'), scope)\n",
+                encoding="utf-8",
+            )
+            self.write_fake_command(
+                fake_bin,
+                "python3",
+                'shift 2\n'
+                'exec "$ATLAS_REAL_PYTHON" -I "$ATLAS_TEST_PYTHON_GUARD" "$@"',
+            )
+            config = root / "codex"
+            env = {
+                "HOME": str(root / "home"),
+                "CODEX_HOME": str(config),
+                "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                "ATLAS_REAL_PYTHON": sys.executable,
+                "ATLAS_TEST_PYTHON_GUARD": str(guard),
+            }
+
+            result = run_command(["bash", script], env=env)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assert_codex_standalone_installed(
+                config / "skills" / "map-project"
+            )
+            skills = config / "skills"
+            self.assertEqual(list(skills.glob(".map-project.install-*")), [])
+            self.assertEqual(list(skills.glob(".map-project.cleanup-*")), [])
+            self.assertFalse((skills / ".map-project.install.lock").exists())
+            self.assertNotIn(
+                "shutil.rmtree(",
+                script.read_text(encoding="utf-8"),
+            )
+
     def test_post_promotion_verification_uses_descriptor_anchored_paths(self) -> None:
         with tempfile.TemporaryDirectory(prefix="atlas descriptor verification ") as temp_dir:
             root = Path(temp_dir)
@@ -2827,6 +2884,104 @@ class InstallerContractTests(unittest.TestCase):
                         preserved.read_text(encoding="utf-8"),
                         "preserve-original\n",
                     )
+
+    @unittest.skipUnless(os.name == "posix", "descriptor cleanup requires POSIX nodes")
+    def test_cleanup_preserves_nested_unsafe_nodes(self) -> None:
+        script = REPO_ROOT / "scripts" / "install.sh"
+        for node_kind in ("symlink", "hardlink", "fifo"):
+            with self.subTest(node=node_kind), tempfile.TemporaryDirectory(
+                prefix=f"atlas nested cleanup {node_kind} "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                config = root / "codex"
+                barrier = root / "cleanup-quarantined"
+                release = root / "release-cleanup"
+                env = os.environ.copy()
+                env.update(
+                    {
+                        "HOME": str(root / "home"),
+                        "CODEX_HOME": str(config),
+                        "ATLAS_TEST_CLEANUP_REMOVE_BARRIER": str(barrier),
+                        "ATLAS_TEST_CLEANUP_REMOVE_RELEASE": str(release),
+                    }
+                )
+                process = subprocess.Popen(
+                    ["bash", str(script)],
+                    cwd=REPO_ROOT,
+                    env=env,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.wait_for_process_barrier(
+                    process,
+                    barrier,
+                    "installer never quarantined its nested staging tree",
+                )
+
+                skills = config / "skills"
+                cleanup_entries = list(skills.glob(".map-project.cleanup-*"))
+                if len(cleanup_entries) != 1:
+                    release.touch()
+                    stdout, stderr = process.communicate(timeout=10)
+                    self.fail(
+                        "installer exposed an unexpected cleanup state: "
+                        f"{[entry.name for entry in cleanup_entries]}\n"
+                        f"stdout:\n{stdout}\nstderr:\n{stderr}"
+                    )
+                nested = (
+                    cleanup_entries[0]
+                    / "expected-map-project"
+                    / "references"
+                )
+                self.assertTrue(nested.is_dir())
+                unsafe = nested / f"unsafe-{node_kind}"
+                external = root / f"external-{node_kind}"
+                external.write_text("preserve\n", encoding="utf-8")
+                if node_kind == "symlink":
+                    unsafe.symlink_to(external)
+                elif node_kind == "hardlink":
+                    try:
+                        os.link(external, unsafe)
+                    except OSError as exc:
+                        release.touch()
+                        process.communicate(timeout=10)
+                        self.skipTest(
+                            f"nested cleanup hardlink regression is unsupported: {exc}"
+                        )
+                    self.assertTrue(unsafe.samefile(external))
+                    self.assertGreater(external.stat().st_nlink, 1)
+                else:
+                    os.mkfifo(unsafe)
+
+                release.touch()
+                stdout, stderr = process.communicate(timeout=10)
+
+                self.assertNotEqual(process.returncode, 0, stderr or stdout)
+                self.assertIn(
+                    "unable to remove owned staging directory",
+                    stderr,
+                )
+                preserved = list(
+                    skills.glob(
+                        f".map-project.cleanup-*/expected-map-project/references/{unsafe.name}"
+                    )
+                )
+                self.assertEqual(len(preserved), 1, stderr or stdout)
+                if node_kind == "symlink":
+                    self.assertTrue(preserved[0].is_symlink())
+                    self.assertTrue(
+                        preserved[0].resolve(strict=True).samefile(external)
+                    )
+                elif node_kind == "hardlink":
+                    self.assertTrue(preserved[0].samefile(external))
+                    self.assertGreater(external.stat().st_nlink, 1)
+                else:
+                    self.assertTrue(stat.S_ISFIFO(preserved[0].lstat().st_mode))
+                self.assertEqual(
+                    external.read_text(encoding="utf-8"),
+                    "preserve\n",
+                )
 
     def test_cleanup_never_deletes_foreign_replacement_after_identity_check(self) -> None:
         cases = (

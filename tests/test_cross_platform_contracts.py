@@ -12,6 +12,18 @@ from unittest import mock
 from tests.support import ATLAS_SCRIPT, REPO_ROOT, resolve_internal_link
 
 
+def windows_junction_command(link: Path, target: Path) -> list[str]:
+    return [
+        "cmd.exe",
+        "/d",
+        "/c",
+        "mklink",
+        "/J",
+        os.fspath(link),
+        os.fspath(target),
+    ]
+
+
 class CrossPlatformContractTests(unittest.TestCase):
     def load_atlas_subject(self):
         spec = importlib.util.spec_from_file_location(
@@ -85,6 +97,18 @@ class CrossPlatformContractTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         resolve_internal_link(source, target, repository=root)
 
+    def test_windows_junction_command_keeps_cmd_tail_as_separate_arguments(
+        self,
+    ) -> None:
+        link = Path(r"C:\Atlas junction test\relay")
+        target = Path(r"C:\Atlas junction test\target")
+        command = windows_junction_command(link, target)
+        self.assertEqual(command[3:5], ["mklink", "/J"])
+        serialized = subprocess.list2cmdline(command)
+        self.assertNotIn(r"\"", serialized)
+        self.assertIn(f'"{link}"', serialized)
+        self.assertIn(f'"{target}"', serialized)
+
     @unittest.skipUnless(os.name == "nt", "Windows junction regression")
     def test_windows_junction_resolution_preserves_every_directory_hop(
         self,
@@ -92,9 +116,8 @@ class CrossPlatformContractTests(unittest.TestCase):
         atlas_module = self.load_atlas_subject()
 
         def create_junction(link: Path, target: Path) -> None:
-            command = f'mklink /J "{link}" "{target}"'
             result = subprocess.run(
-                ["cmd.exe", "/d", "/c", command],
+                windows_junction_command(link, target),
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

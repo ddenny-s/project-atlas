@@ -1286,6 +1286,138 @@ def make_unique_directory(parent_fd: int, prefix: str) -> tuple[str, tuple[int, 
     raise InstallFailure(f"unable to reserve a unique directory under {prefix}")
 
 
+def remove_owned_tree_entry(parent_fd: int, name: str) -> None:
+    """Remove one descriptor-anchored regular tree without following links."""
+
+    try:
+        path_metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError as exc:
+        raise InstallFailure(
+            "owned cleanup tree entry could not be inspected"
+        ) from exc
+
+    if stat.S_ISREG(path_metadata.st_mode):
+        if path_metadata.st_nlink != 1:
+            raise InstallFailure(
+                "owned cleanup tree contains a hardlinked file"
+            )
+        try:
+            file_fd = os.open(name, regular_file_flags, dir_fd=parent_fd)
+        except OSError as exc:
+            raise InstallFailure(
+                "owned cleanup tree file could not be anchored"
+            ) from exc
+        try:
+            opened_metadata = os.fstat(file_fd)
+            if (
+                not stat.S_ISREG(opened_metadata.st_mode)
+                or opened_metadata.st_nlink != 1
+                or stable_metadata(opened_metadata)
+                != stable_metadata(path_metadata)
+            ):
+                raise InstallFailure(
+                    "owned cleanup tree file changed while being anchored"
+                )
+            current_path_metadata = os.stat(
+                name,
+                dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+            current_opened_metadata = os.fstat(file_fd)
+            if (
+                stable_metadata(current_path_metadata)
+                != stable_metadata(current_opened_metadata)
+                or stable_metadata(current_opened_metadata)
+                != stable_metadata(opened_metadata)
+            ):
+                raise InstallFailure(
+                    "owned cleanup tree file changed before removal"
+                )
+            os.unlink(name, dir_fd=parent_fd)
+            if entry_identity(parent_fd, name) is not None:
+                raise InstallFailure(
+                    "owned cleanup tree file remained after removal"
+                )
+        except InstallFailure:
+            raise
+        except OSError as exc:
+            raise InstallFailure(
+                "owned cleanup tree file could not be removed safely"
+            ) from exc
+        finally:
+            os.close(file_fd)
+        return
+
+    if not stat.S_ISDIR(path_metadata.st_mode):
+        raise InstallFailure(
+            "owned cleanup tree contains a symlink or special filesystem node"
+        )
+
+    expected_identity = (path_metadata.st_dev, path_metadata.st_ino)
+    try:
+        directory_fd = os.open(name, directory_flags, dir_fd=parent_fd)
+    except OSError as exc:
+        raise InstallFailure(
+            "owned cleanup tree directory could not be anchored"
+        ) from exc
+    try:
+        opened_metadata = os.fstat(directory_fd)
+        if (
+            not stat.S_ISDIR(opened_metadata.st_mode)
+            or stable_metadata(opened_metadata) != stable_metadata(path_metadata)
+        ):
+            raise InstallFailure(
+                "owned cleanup tree directory changed while being anchored"
+            )
+        try:
+            children = tuple(os.listdir(directory_fd))
+        except OSError as exc:
+            raise InstallFailure(
+                "owned cleanup tree directory could not be enumerated"
+            ) from exc
+        for child in children:
+            remove_owned_tree_entry(directory_fd, child)
+
+        try:
+            remaining = tuple(os.listdir(directory_fd))
+            current_path_metadata = os.stat(
+                name,
+                dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+            current_opened_metadata = os.fstat(directory_fd)
+        except OSError as exc:
+            raise InstallFailure(
+                "owned cleanup tree directory could not be revalidated"
+            ) from exc
+        if (
+            remaining
+            or fd_identity(directory_fd) != expected_identity
+            or (
+                current_path_metadata.st_dev,
+                current_path_metadata.st_ino,
+            )
+            != expected_identity
+            or stable_metadata(current_path_metadata)
+            != stable_metadata(current_opened_metadata)
+        ):
+            raise InstallFailure(
+                "owned cleanup tree directory changed before removal"
+            )
+        try:
+            os.rmdir(name, dir_fd=parent_fd)
+        except OSError as exc:
+            raise InstallFailure(
+                "owned cleanup tree directory could not be removed safely"
+            ) from exc
+        if entry_identity(parent_fd, name) is not None:
+            raise InstallFailure(
+                "owned cleanup tree directory remained after removal"
+            )
+    finally:
+        os.close(directory_fd)
+
+
 def remove_owned_entry(
     parent_fd: int,
     name: str,
@@ -1372,19 +1504,7 @@ def remove_owned_entry(
                 for child in tuple(os.listdir(quarantine_fd)):
                     if child == INSTALL_MARKER_NAME:
                         continue
-                    details = os.stat(
-                        child,
-                        dir_fd=quarantine_fd,
-                        follow_symlinks=False,
-                    )
-                    if stat.S_ISDIR(details.st_mode):
-                        shutil.rmtree(child, dir_fd=quarantine_fd)
-                    elif stat.S_ISREG(details.st_mode) and details.st_nlink == 1:
-                        os.unlink(child, dir_fd=quarantine_fd)
-                    else:
-                        raise InstallFailure(
-                            "owned cleanup tree contains an unexpected filesystem node"
-                        )
+                    remove_owned_tree_entry(quarantine_fd, child)
             except (OSError, InstallFailure):
                 return False
             if (
