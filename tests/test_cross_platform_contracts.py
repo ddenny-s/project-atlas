@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest import mock
 
 from tests.support import ATLAS_SCRIPT, REPO_ROOT, resolve_internal_link
@@ -109,6 +109,15 @@ class CrossPlatformContractTests(unittest.TestCase):
         self.assertIn(f'"{link}"', serialized)
         self.assertIn(f'"{target}"', serialized)
 
+    def test_windows_extended_length_namespace_is_not_lexically_equal(
+        self,
+    ) -> None:
+        ordinary = PureWindowsPath(r"C:\atlas\trusted-host\bin\rg.exe")
+        extended = PureWindowsPath(
+            r"\\?\C:\atlas\trusted-host\bin\rg.exe"
+        )
+        self.assertNotEqual(extended, ordinary)
+
     @unittest.skipUnless(os.name == "nt", "Windows junction regression")
     def test_windows_junction_resolution_preserves_every_directory_hop(
         self,
@@ -160,9 +169,9 @@ class CrossPlatformContractTests(unittest.TestCase):
                 ),
                 chain,
             )
-            self.assertEqual(
-                chain[-1].resolve(strict=True),
-                trusted_rg.resolve(strict=True),
+            self.assertTrue(
+                chain[-1].samefile(trusted_rg),
+                (chain[-1], trusted_rg),
             )
 
     def test_windows_ci_runs_only_portable_sync_contracts(self) -> None:

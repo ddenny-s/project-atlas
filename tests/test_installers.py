@@ -3836,41 +3836,87 @@ class InstallerContractTests(unittest.TestCase):
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                     )
-                    deadline = time.monotonic() + 5
-                    while not barrier.exists() and time.monotonic() < deadline:
-                        if first.poll() is not None:
-                            break
-                        time.sleep(0.02)
-                    self.assertTrue(barrier.exists(), "first installer never reached verification")
+                    second: subprocess.Popen[str] | None = None
+                    try:
+                        deadline = time.monotonic() + 5
+                        while not barrier.exists() and time.monotonic() < deadline:
+                            if first.poll() is not None:
+                                break
+                            time.sleep(0.02)
+                        self.assertTrue(
+                            barrier.exists(),
+                            "first installer never reached verification",
+                        )
+                        lock = config / "skills" / ".map-project.install.lock"
+                        self.assertTrue(
+                            lock.is_dir(),
+                            "first installer reached verification without holding its lock",
+                        )
 
-                    second = subprocess.Popen(
-                        command,
-                        cwd=REPO_ROOT,
-                        env=env,
-                        text=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                    )
-                    time.sleep(0.2)
-                    release.touch()
-                    first_stdout, first_stderr = first.communicate(timeout=10)
-                    second_stdout, second_stderr = second.communicate(timeout=10)
-                    self.assertEqual(first.returncode, 0, first_stderr or first_stdout)
-                    self.assertNotEqual(
-                        second.returncode,
-                        0,
-                        second_stderr or second_stdout or "second concurrent installer unexpectedly succeeded",
-                    )
+                        second = subprocess.Popen(
+                            command,
+                            cwd=REPO_ROOT,
+                            env=env,
+                            text=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                        )
+                        try:
+                            second_stdout, second_stderr = second.communicate(timeout=5)
+                        except subprocess.TimeoutExpired as error:
+                            self.fail(
+                                "second installer did not reject the active lock before "
+                                "the first installer was released\n"
+                                f"second stdout before timeout:\n{error.stdout or ''}\n"
+                                f"second stderr before timeout:\n{error.stderr or ''}"
+                            )
+                        release.touch()
+                        first_stdout, first_stderr = first.communicate(timeout=10)
+                        self.assertEqual(
+                            first.returncode,
+                            0,
+                            first_stderr or first_stdout,
+                        )
+                        self.assertNotEqual(
+                            second.returncode,
+                            0,
+                            second_stderr
+                            or second_stdout
+                            or "second concurrent installer unexpectedly succeeded",
+                        )
+                        self.assertIn(
+                            "another installation is active or a stale lock exists",
+                            second_stderr,
+                        )
 
-                    assert_installed(target)
-                    backup_root = config / ".skill-backups" / "project-atlas"
-                    backups = list(backup_root.glob("map-project-*"))
-                    self.assertEqual(len(backups), 1)
-                    self.assertEqual(
-                        (backups[0] / "original-marker.txt").read_text(encoding="utf-8"),
-                        "preserve-original\n",
-                    )
-                    self.assertEqual(sorted(path.name for path in target.parent.iterdir()), ["map-project"])
+                        assert_installed(target)
+                        backup_root = config / ".skill-backups" / "project-atlas"
+                        backups = list(backup_root.glob("map-project-*"))
+                        self.assertEqual(len(backups), 1)
+                        self.assertEqual(
+                            (backups[0] / "original-marker.txt").read_text(
+                                encoding="utf-8"
+                            ),
+                            "preserve-original\n",
+                        )
+                        self.assertEqual(
+                            sorted(path.name for path in target.parent.iterdir()),
+                            ["map-project"],
+                        )
+                    finally:
+                        release.touch()
+                        for process in (second, first):
+                            if process is None:
+                                continue
+                            try:
+                                process.communicate(timeout=1)
+                            except subprocess.TimeoutExpired:
+                                process.terminate()
+                                try:
+                                    process.communicate(timeout=1)
+                                except subprocess.TimeoutExpired:
+                                    process.kill()
+                                    process.communicate(timeout=5)
 
     def test_installers_do_not_require_sudo_or_edit_shell_profiles(self) -> None:
         for relative_path in ("scripts/install.sh", "scripts/install-claude.sh"):
