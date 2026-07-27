@@ -32,14 +32,24 @@ class CoreSkillContractTests(unittest.TestCase):
     def test_repository_has_public_project_layout(self) -> None:
         required_files = (
             "README.md",
+            "README.ru.md",
             "LICENSE",
             "CONTRIBUTING.md",
             "SECURITY.md",
+            "docs/README.md",
             "docs/README.ru.md",
             "docs/methodology.md",
+            "docs/methodology.ru.md",
             "docs/depth-levels.md",
+            "docs/depth-levels.ru.md",
             "docs/outputs.md",
+            "docs/outputs.ru.md",
             "docs/examples.md",
+            "docs/examples.ru.md",
+            "docs/adapters.md",
+            "docs/adapters.ru.md",
+            "docs/case-study.md",
+            "docs/case-study.ru.md",
         )
         for relative_path in required_files:
             with self.subTest(path=relative_path):

@@ -13,6 +13,7 @@ from tests.support import ATLAS_SCRIPT, REPO_ROOT, iter_release_files, resolve_i
 TEXT_SUFFIXES = {
     "",
     ".md",
+    ".patch",
     ".py",
     ".sh",
     ".json",
@@ -45,6 +46,10 @@ class RepositoryHygieneTests(unittest.TestCase):
             path.relative_to(REPO_ROOT).as_posix() for path in iter_release_files()
         }
         required_public_surfaces = {
+            "docs/case-study-artifacts/standard-service/ATLAS-001-context-packet.md",
+            "docs/case-study-artifacts/standard-service/ATLAS-001.patch",
+            "docs/case-study-artifacts/standard-service/after/PROJECT_ATLAS.md",
+            "docs/case-study-artifacts/standard-service/before/PROJECT_ATLAS.md",
             "tests/test_fixture_contracts.py",
             "tests/fixtures/quick_cli/README.md",
             "tests/fixtures/standard_service/README.md",
