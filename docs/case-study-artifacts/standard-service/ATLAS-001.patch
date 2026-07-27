@@ -1,0 +1,8 @@
+--- a/service/state.py
++++ b/service/state.py
+@@ -8,3 +8,5 @@
+ def record_status(database: Path, parcel_id: str, status: str, *, writer: str) -> None:
+     """Persistent state writer shared by the API and worker runtimes."""
++    if not parcel_id.strip():
++        raise ValueError("parcel_id is required")
+     database.parent.mkdir(parents=True, exist_ok=True)

@@ -174,8 +174,10 @@ class InstallerContractTests(unittest.TestCase):
         process: subprocess.Popen[str],
         barrier: Path,
         message: str,
+        *,
+        timeout: float = 5,
     ) -> None:
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + timeout
         while not barrier.exists() and time.monotonic() < deadline:
             if process.poll() is not None:
                 break
@@ -186,6 +188,71 @@ class InstallerContractTests(unittest.TestCase):
             process.terminate()
         stdout, stderr = process.communicate(timeout=10)
         self.fail(f"{message}\nstdout:\n{stdout}\nstderr:\n{stderr}")
+
+    def run_installer_until_stalled_diff_timeout(
+        self,
+        *,
+        script: Path,
+        env: dict[str, str],
+        stalled_pid_path: Path,
+        phase: str,
+    ) -> tuple[subprocess.CompletedProcess[str], float]:
+        merged_env = os.environ.copy()
+        merged_env.update(env)
+        process = subprocess.Popen(
+            ["bash", str(script), "--force"],
+            cwd=REPO_ROOT,
+            env=merged_env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        completed = False
+        try:
+            self.wait_for_process_barrier(
+                process,
+                stalled_pid_path,
+                f"installer did not reach the {phase} diff within 10 seconds",
+                timeout=10,
+            )
+
+            started = time.monotonic()
+            try:
+                stdout, stderr = process.communicate(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.fail(
+                    f"installer did not finish within 3 seconds after the {phase} "
+                    "diff stalled"
+                )
+            elapsed = time.monotonic() - started
+            result = subprocess.CompletedProcess(
+                process.args,
+                process.returncode,
+                stdout,
+                stderr,
+            )
+            completed = True
+            return result, elapsed
+        finally:
+            if not completed:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.communicate(timeout=1)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.communicate(timeout=5)
+                else:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
 
     def assert_process_group_exited(self, process_group: int) -> None:
         deadline = time.monotonic() + 1
@@ -2349,9 +2416,12 @@ class InstallerContractTests(unittest.TestCase):
                         "ATLAS_TEST_DIFF_TIMEOUT_SECONDS": "0.5",
                     }
 
-                    started = time.monotonic()
-                    result = run_command(["bash", script, "--force"], env=env, timeout=5)
-                    elapsed = time.monotonic() - started
+                    result, elapsed = self.run_installer_until_stalled_diff_timeout(
+                        script=script,
+                        env=env,
+                        stalled_pid_path=stalled_pid_path,
+                        phase="preflight",
+                    )
 
                     self.assertNotEqual(result.returncode, 0, result.stdout)
                     self.assertIn("external diff verification timed out", result.stderr)
@@ -2396,9 +2466,12 @@ class InstallerContractTests(unittest.TestCase):
                     "ATLAS_TEST_DIFF_TIMEOUT_SECONDS": "0.5",
                 }
 
-                started = time.monotonic()
-                result = run_command(["bash", script, "--force"], env=env, timeout=5)
-                elapsed = time.monotonic() - started
+                result, elapsed = self.run_installer_until_stalled_diff_timeout(
+                    script=script,
+                    env=env,
+                    stalled_pid_path=stalled_pid_path,
+                    phase="post-promotion",
+                )
 
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertIn("external diff verification timed out", result.stderr)

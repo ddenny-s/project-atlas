@@ -23,13 +23,15 @@ Expected shape: one `PROJECT_ATLAS.md` with START and FINISH alignment, scope an
 Codex:
 
 ```text
-Use $project-atlas:map-project to build a STANDARD current-state and target-state atlas before we refactor this service.
+Use $project-atlas:map-project to build a STANDARD current-state and
+target-state atlas before we refactor this service.
 ```
 
 Claude Code:
 
 ```text
-/project-atlas:map-project Build a STANDARD current-state and target-state atlas before we refactor this service.
+/project-atlas:map-project Build a STANDARD current-state and target-state
+atlas before we refactor this service.
 ```
 
 Expected shape: routed current architecture, runtime, data and authority, priority flows, quality and operations, findings, target architecture, migration plan, open unknowns, and handoff. Product requirements retain START alignment, migration retains future tasks, and handoff retains FINISH alignment plus run economics. Mapping alone does not authorize the refactor.
@@ -39,13 +41,19 @@ Expected shape: routed current architecture, runtime, data and authority, priori
 Codex:
 
 ```text
-Use $project-atlas:map-project in FORENSIC mode. Map every runtime root, data store, state writer, authority boundary, recovery path and test gap. Do not implement changes until I approve the atlas.
+Use $project-atlas:map-project in FORENSIC mode.
+Map every runtime root, data store, state writer, authority boundary,
+recovery path, and test gap.
+Do not implement changes until I approve the atlas.
 ```
 
 Claude Code:
 
 ```text
-/project-atlas:map-project Use FORENSIC mode. Map every runtime root, data store, state writer, authority boundary, recovery path and test gap. Do not implement changes until I approve the atlas.
+/project-atlas:map-project Use FORENSIC mode.
+Map every runtime root, data store, state writer, authority boundary,
+recovery path, and test gap.
+Do not implement changes until I approve the atlas.
 ```
 
 Expected shape: explicit denominators, complete registries for the declared scope, traceability, quantitative coverage, open unknowns, source snapshot, reproducible checks, independent review, and a safe migration plan. Final owner direction and future-task claims are recorded before snapshot and review. The implementation gate is explicit.
@@ -118,7 +126,9 @@ A `READY` task has filled, substantive task fields, an active owner answer, and 
 ## Specify an output path
 
 ```text
-Use $project-atlas:map-project in STANDARD mode. Write the atlas under architecture/evidence, preserve any existing documents there, and report every file changed.
+Use $project-atlas:map-project in STANDARD mode.
+Write the atlas under architecture/evidence.
+Preserve any existing documents there and report every file changed.
 ```
 
 An explicit location overrides default routing. Initialization must refuse a silent overwrite; refresh must inspect and preserve existing content.
@@ -126,7 +136,11 @@ An explicit location overrides default routing. Initialization must refuse a sil
 ## Define exclusions and privacy boundaries
 
 ```text
-Use $project-atlas:map-project in STANDARD mode. Do not open .env files, credential stores, private keys, production exports, vendor trees, or generated binaries. Record excluded paths and resulting unknowns. Keep all evidence repository-relative.
+Use $project-atlas:map-project in STANDARD mode.
+Do not open .env files, credential stores, private keys, production exports,
+vendor trees, or generated binaries.
+Record excluded paths and resulting unknowns.
+Keep all evidence repository-relative.
 ```
 
 Exclusions are part of the atlas scope. The workflow should not infer the contents of excluded sources.
@@ -134,7 +148,11 @@ Exclusions are part of the atlas scope. The workflow should not infer the conten
 ## Map only, with an implementation gate
 
 ```text
-Use $project-atlas:map-project to map the current authorization flow and propose a target design. Do not modify application code, configuration, data, infrastructure, or deployments. Stop at the reviewed migration plan.
+Use $project-atlas:map-project to map the current authorization flow and
+propose a target design.
+Do not modify application code, configuration, data, infrastructure,
+or deployments.
+Stop at the reviewed migration plan.
 ```
 
 This distinguishes investigation permission from implementation permission.
@@ -142,7 +160,11 @@ This distinguishes investigation permission from implementation permission.
 ## Focus on state and authority
 
 ```text
-Use $project-atlas:map-project in FORENSIC mode. For every material state object, list its store, schema, readers, writers, lifecycle, authority, conflict resolution, retry, idempotency, rollback and recovery evidence. Mark every unsupported edge UNKNOWN.
+Use $project-atlas:map-project in FORENSIC mode.
+For every material state object, list its store, schema, readers, writers,
+lifecycle, authority, conflict resolution, retry, idempotency, rollback,
+and recovery evidence.
+Mark every unsupported edge UNKNOWN.
 ```
 
 This is appropriate when automatic decisions or competing writers make a general architecture summary insufficient.
@@ -150,13 +172,19 @@ This is appropriate when automatic decisions or competing writers make a general
 ## Audit what tests prove
 
 ```text
-Use $project-atlas:map-project in STANDARD mode. Map each critical product claim to tests or runtime evidence, state the mock boundary, and list what remains unproved. Do not use green test counts as a production-readiness conclusion.
+Use $project-atlas:map-project in STANDARD mode.
+Map each critical product claim to tests or runtime evidence.
+State the mock boundary and list what remains unproved.
+Do not use green test counts as a production-readiness conclusion.
 ```
 
 ## Start with automatic depth selection
 
 ```text
-Use $project-atlas:map-project to assess this repository, choose QUICK, STANDARD or FORENSIC, explain the decisive signals, then create the corresponding atlas. Do not read excluded or high-volume trees merely to estimate size.
+Use $project-atlas:map-project to assess this repository.
+Choose QUICK, STANDARD, or FORENSIC and explain the decisive signals.
+Then create the corresponding atlas.
+Do not read excluded or high-volume trees merely to estimate size.
 ```
 
 The selection explanation becomes part of the atlas index or QUICK document.

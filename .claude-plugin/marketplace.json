@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "project-atlas",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Build an evidence-backed map of project architecture, runtime, state, authority, risks, and migration paths.",
       "author": {
         "name": "Project Atlas contributors"

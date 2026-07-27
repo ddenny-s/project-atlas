@@ -28,8 +28,8 @@ An adapter may translate invocation, discovery, manifest, and host-permission de
 2. Add or update a failing test for behavior changes when the existing test framework can express the case.
 3. Make the smallest coherent change in the owning layer.
 4. If core behavior changed, update both adapters and their conformance coverage.
-5. Update and review the primary Russian documentation first. Publish or refresh
-   an English translation only after the corresponding Russian copy is approved.
+5. Update and review the Russian product documentation first. Publish or refresh
+   the matching English page only after the Russian copy is approved.
 6. Run the relevant checks and inspect the generated artifacts.
 7. Submit a pull request that explains the behavior, evidence, risk, and validation.
 
@@ -62,7 +62,9 @@ For adapter work, validate the host manifests with the current host tooling when
 - Distinguish requirements from recommendations and observed behavior from proposals.
 - Keep commands copyable and use repository-relative paths.
 - Do not publish machine-specific paths, credentials, private project names, or fixture data copied from real systems.
-- Keep internal links valid and update `docs/README.ru.md` when the primary usage contract changes.
+- Keep internal links valid. `README.md` and `README.ru.md` are the English and
+  Russian product homepages; `docs/README.md` and `docs/README.ru.md` route the
+  matching technical documentation.
 
 ## Pull request checklist
 

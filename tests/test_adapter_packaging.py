@@ -146,6 +146,18 @@ class AdapterPackagingTests(unittest.TestCase):
             1,
             f"plugin and marketplace versions differ: {versions}",
         )
+        release_version = str(next(iter(versions.values())))
+        for public_surface in (
+            REPO_ROOT / "README.md",
+            REPO_ROOT / "README.ru.md",
+            REPO_ROOT / "assets" / "readme" / "hero.svg",
+            REPO_ROOT / "assets" / "readme" / "hero-ru.svg",
+        ):
+            with self.subTest(version_surface=public_surface):
+                self.assertIn(
+                    f"v{release_version}",
+                    public_surface.read_text(encoding="utf-8"),
+                )
         self.assertEqual(codex.get("capabilities"), None)
         interface = codex.get("interface")
         self.assertIsInstance(interface, dict)
@@ -252,8 +264,9 @@ class AdapterPackagingTests(unittest.TestCase):
         claude_surfaces = (
             HOST_GUIDANCE_SOURCES["claude-code"],
             REPO_ROOT / "README.md",
-            REPO_ROOT / "docs" / "README.ru.md",
+            REPO_ROOT / "README.ru.md",
             REPO_ROOT / "docs" / "adapters.md",
+            REPO_ROOT / "docs" / "adapters.ru.md",
         )
         for surface in claude_surfaces:
             content = surface.read_text(encoding="utf-8")
@@ -278,7 +291,9 @@ class AdapterPackagingTests(unittest.TestCase):
                 ):
                     self.assertNotIn(stale_marker, content)
 
-        russian_homepage = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        russian_homepage = " ".join(
+            (REPO_ROOT / "README.ru.md").read_text(encoding="utf-8").split()
+        )
         for marker in (
             "`best` использует Fable 5",
             "Anthropic API и Claude Platform on AWS",
@@ -450,17 +465,17 @@ class AdapterPackagingTests(unittest.TestCase):
 
     def test_release_docs_distinguish_ci_from_manual_clean_profile_gate(self) -> None:
         readmes = {
-            "Russian homepage": (
+            "English homepage": (
                 REPO_ROOT / "README.md",
                 (
-                    "одноразовые чистые профили",
-                    "создания тега версии или github release",
-                    "ручной гейт",
-                    "не считается проверкой github actions",
+                    "disposable clean profiles",
+                    "before a tag or github release",
+                    "manual gate",
+                    "is not a github actions check",
                 ),
             ),
-            "Russian documentation": (
-                REPO_ROOT / "docs" / "README.ru.md",
+            "Russian homepage": (
+                REPO_ROOT / "README.ru.md",
                 (
                     "одноразовые чистые профили",
                     "создания тега версии или github release",
@@ -470,34 +485,145 @@ class AdapterPackagingTests(unittest.TestCase):
             ),
         }
         for language, (path, markers) in readmes.items():
-            readme = path.read_text(encoding="utf-8").lower()
+            readme = " ".join(path.read_text(encoding="utf-8").lower().split())
             for marker in markers:
                 with self.subTest(language=language, marker=marker):
                     self.assertIn(marker, readme)
 
-    def test_russian_documentation_mirrors_the_public_homepage(self) -> None:
-        homepage = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-        documentation = (REPO_ROOT / "docs" / "README.ru.md").read_text(
-            encoding="utf-8"
+    def test_public_homepages_are_bilingual_and_contract_aligned(self) -> None:
+        english = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        russian = (REPO_ROOT / "README.ru.md").read_text(encoding="utf-8")
+
+        language_contracts = {
+            "English": {
+                "content": english,
+                "sections": (
+                    "## 30 seconds",
+                    "## Five minutes to your first run",
+                    "## End-to-end: map → task → change",
+                    "## What to do with the map",
+                    "## What Atlas does internally",
+                    "## Three depth levels",
+                    "## Surveys, tokens, and model choice",
+                    "## Effectiveness without marketing math",
+                    "## Benefits, costs, and boundaries",
+                    "## Technical deep dive",
+                    "## Development and release",
+                ),
+                "links": (
+                    "./README.ru.md",
+                    "./assets/readme/hero.svg",
+                    "./assets/readme/workflow.svg",
+                    "./docs/case-study.md",
+                    "./docs/case-study-artifacts/standard-service/before/PROJECT_ATLAS.md",
+                    "./docs/case-study-artifacts/standard-service/ATLAS-001-context-packet.md",
+                    "./docs/case-study-artifacts/standard-service/ATLAS-001.patch",
+                    "./docs/case-study-artifacts/standard-service/after/PROJECT_ATLAS.md",
+                    "./docs/README.md",
+                    "./docs/methodology.md",
+                    "./docs/depth-levels.md",
+                    "./docs/outputs.md",
+                    "./docs/examples.md",
+                    "./docs/adapters.md",
+                ),
+                "localized_markers": (
+                    "Codex is the primary adapter",
+                    "Claude Code is the first additional adapter",
+                    "does not change product code while mapping",
+                    "does not start future tasks on its own",
+                    "2,500 / 3,600 / 5,500 model tokens",
+                    "+40.0% token cost",
+                    "saving **18.6%**",
+                    "saving **51.1%**",
+                    "Not measured yet",
+                    "manual gate",
+                ),
+            },
+            "Russian": {
+                "content": russian,
+                "sections": (
+                    "## За 30 секунд",
+                    "## За 5 минут до первого запроса",
+                    "## Сквозной пример: карта → задача → исправление",
+                    "## Что делать с картой дальше",
+                    "## Что происходит внутри Atlas",
+                    "## Три уровня глубины",
+                    "## Опросы, токены и модель",
+                    "## Эффективность без маркетинговой математики",
+                    "## Плюсы, минусы и границы",
+                    "## Технический уровень",
+                    "## Разработка и релиз",
+                ),
+                "links": (
+                    "./README.md",
+                    "./assets/readme/hero-ru.svg",
+                    "./assets/readme/workflow-ru.svg",
+                    "./docs/case-study.ru.md",
+                    "./docs/case-study-artifacts/standard-service/before/PROJECT_ATLAS.md",
+                    "./docs/case-study-artifacts/standard-service/ATLAS-001-context-packet.md",
+                    "./docs/case-study-artifacts/standard-service/ATLAS-001.patch",
+                    "./docs/case-study-artifacts/standard-service/after/PROJECT_ATLAS.md",
+                    "./docs/README.ru.md",
+                    "./docs/methodology.ru.md",
+                    "./docs/depth-levels.ru.md",
+                    "./docs/outputs.ru.md",
+                    "./docs/examples.ru.md",
+                    "./docs/adapters.ru.md",
+                ),
+                "localized_markers": (
+                    "Codex — основной адаптер",
+                    "Claude Code — первый дополнительный",
+                    "не меняет продуктовый код во время картирования",
+                    "не запускает будущие задачи сам",
+                    "2 500 / 3 600 / 5 500 модельных токенов",
+                    "+40,0% расхода",
+                    "экономия **18,6%**",
+                    "экономия **51,1%**",
+                    "Ещё не измерено",
+                    "ручной гейт",
+                ),
+            },
+        }
+        shared_markers = (
+            "CONFIRMED",
+            "INFERENCE",
+            "HYPOTHESIS",
+            "TARGET",
+            "UNKNOWN",
+            "Task Context Packet",
+            "MODELLED_ASSUMPTION",
+            "v0.1.1",
+            "codex plugin marketplace add ddenny-s/project-atlas",
+            "codex plugin add project-atlas@project-atlas",
+            "claude plugin marketplace add ddenny-s/project-atlas",
+            "claude plugin install project-atlas@project-atlas",
         )
-        expected_documentation = homepage
-        for homepage_prefix, documentation_prefix in (
-            ('src="./assets/', 'src="../assets/'),
-            ("](./tests/", "](../tests/"),
-            ("](./core/", "](../core/"),
-            ("](./scripts/", "](../scripts/"),
-            ("](./benchmarks/", "](../benchmarks/"),
-            ('href="./benchmarks/', 'href="../benchmarks/'),
-            ("](./SECURITY", "](../SECURITY"),
-            ("](./CONTRIBUTING", "](../CONTRIBUTING"),
-            ("](./LICENSE", "](../LICENSE"),
-            ("](./docs/", "](./"),
-        ):
-            expected_documentation = expected_documentation.replace(
-                homepage_prefix,
-                documentation_prefix,
-            )
-        self.assertEqual(documentation, expected_documentation)
+
+        for language, contract in language_contracts.items():
+            content = contract["content"]
+            normalized = " ".join(content.split())
+            section_positions = [
+                content.index(section) for section in contract["sections"]
+            ]
+            with self.subTest(language=language, contract="section order"):
+                self.assertEqual(section_positions, sorted(section_positions))
+            for contract_kind in ("links", "localized_markers"):
+                for marker in contract[contract_kind]:
+                    haystack = content if contract_kind == "links" else normalized
+                    with self.subTest(
+                        language=language,
+                        contract=contract_kind,
+                        marker=marker,
+                    ):
+                        self.assertIn(marker, haystack)
+            for marker in shared_markers:
+                with self.subTest(
+                    language=language,
+                    contract="shared marker",
+                    marker=marker,
+                ):
+                    self.assertIn(marker, normalized)
+
         for root_cwd_command in (
             "./scripts/install.sh --user-scope",
             "./scripts/install-claude.sh",
@@ -506,12 +632,17 @@ class AdapterPackagingTests(unittest.TestCase):
         ):
             with self.subTest(root_cwd_command=root_cwd_command):
                 self.assertEqual(
-                    documentation.count(root_cwd_command),
-                    homepage.count(root_cwd_command),
-                    "documentation commands must still run from the repository root",
+                    (
+                        [line.strip() for line in english.splitlines()].count(
+                            root_cwd_command
+                        ),
+                        [line.strip() for line in russian.splitlines()].count(
+                            root_cwd_command
+                        ),
+                    ),
+                    (1, 1),
+                    "each public language must expose each direct-install command exactly once",
                 )
-        self.assertIn("](../scripts/benchmark_atlas.py)", documentation)
-        self.assertNotIn("](./scripts/benchmark_atlas.py)", documentation)
 
     def test_marketplace_manifests_exist(self) -> None:
         manifests = {

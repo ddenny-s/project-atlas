@@ -131,31 +131,42 @@ class EffectivenessContractTests(unittest.TestCase):
                 self.assertEqual(output[metric][saving_field], 0.1)
                 self.assertEqual(output[metric]["horizons"][0]["net_saving"], 0)
 
-    def test_russian_homepages_define_formula_domains_and_alignment_states(
+    def test_public_homepages_define_formula_domains_and_alignment_states(
         self,
     ) -> None:
-        for path in (
-            REPO_ROOT / "README.md",
-            REPO_ROOT / "docs" / "README.ru.md",
-        ):
-            content = path.read_text(encoding="utf-8")
+        shared_markers = (
+            "`UNAVAILABLE`",
+            "`SKIPPED`",
+            "`STOP_USER`",
+            "`UNKNOWN:<stable-id>`",
+        )
+        language_markers = {
+            REPO_ROOT / "README.md": (
+                "zero or negative savings",
+                "break-even is not reached",
+                "zero baseline",
+                "not infinity or an invented percentage",
+            ),
+            REPO_ROOT / "README.ru.md": (
+                "нулевой или отрицательной экономии",
+                "в этой модели окупаемость не достигается",
+                "нулевом baseline",
+                "а не бесконечность или выдуманный процент",
+            ),
+        }
+        for path, markers in language_markers.items():
+            content = " ".join(path.read_text(encoding="utf-8").split()).lower()
             with self.subTest(path=path):
-                for marker in (
-                    "`UNAVAILABLE`",
-                    "`SKIPPED`",
-                    "`STOP_USER`",
-                    "`UNKNOWN:<stable-id>`",
-                    "нулевой или отрицательной экономии",
-                    "в этой модели окупаемость не достигается",
-                    "при нулевом baseline",
-                    "а не бесконечность или выдуманный процент",
-                ):
-                    self.assertIn(marker, content)
-                self.assertNotIn(
-                    "Если ответ неизвестен или вопрос пропущен, Atlas записывает "
-                    "`UNKNOWN`",
-                    content,
-                )
+                for marker in (*shared_markers, *markers):
+                    self.assertIn(marker.lower(), content)
+
+        russian = " ".join(
+            (REPO_ROOT / "README.ru.md").read_text(encoding="utf-8").split()
+        )
+        self.assertNotIn(
+            "Если ответ неизвестен или вопрос пропущен, Atlas записывает `UNKNOWN`",
+            russian,
+        )
 
         payload = json.loads(MODELLED_INPUT.read_text(encoding="utf-8"))
         scenario = payload["scenarios"][0]
