@@ -12,6 +12,27 @@ No contour has been marked complete yet.
 
 No source observation or snapshot has been recorded yet.
 
+## Finish Alignment
+
+Complete against the candidate map and backlog. If an answer changes either, update them, supersede affected records, and repeat this section before completion.
+
+### Question table
+
+| Question ID | Batch ID | Topic | Question | Option A | Option B | Option C | Option D | Selected | Free-form note | Answer state | Map effect | Provenance | Answered at |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+### Batch ledger
+
+| Batch ID | Sequence | Question IDs | Remaining material gaps | Decision | Decision provenance | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+
+## Run Economics
+
+Record PRE before every deep-work block and POST after it. PRE uses integer model-token ranges; POST uses exact host telemetry or `UNMEASURED`.
+
+| Run ID | Block ID | Entry | Block | Unit | Min | Typical | Max | Basis | Model tier and effort | Input | Output | Reasoning | Total | Telemetry | Variance vs typical | Recorded at | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
 ## Remaining Work and Blockers
 
 Route unresolved evidence through `OPEN_UNKNOWNS.md`.

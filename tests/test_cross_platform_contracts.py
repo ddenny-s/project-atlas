@@ -2,13 +2,26 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest import mock
 
 from tests.support import ATLAS_SCRIPT, REPO_ROOT, resolve_internal_link
+
+
+def windows_junction_command(link: Path, target: Path) -> list[str]:
+    return [
+        "cmd.exe",
+        "/d",
+        "/c",
+        "mklink",
+        "/J",
+        os.fspath(link),
+        os.fspath(target),
+    ]
 
 
 class CrossPlatformContractTests(unittest.TestCase):
@@ -84,6 +97,83 @@ class CrossPlatformContractTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         resolve_internal_link(source, target, repository=root)
 
+    def test_windows_junction_command_keeps_cmd_tail_as_separate_arguments(
+        self,
+    ) -> None:
+        link = Path(r"C:\Atlas junction test\relay")
+        target = Path(r"C:\Atlas junction test\target")
+        command = windows_junction_command(link, target)
+        self.assertEqual(command[3:5], ["mklink", "/J"])
+        serialized = subprocess.list2cmdline(command)
+        self.assertNotIn(r"\"", serialized)
+        self.assertIn(f'"{link}"', serialized)
+        self.assertIn(f'"{target}"', serialized)
+
+    def test_windows_extended_length_namespace_is_not_lexically_equal(
+        self,
+    ) -> None:
+        ordinary = PureWindowsPath(r"C:\atlas\trusted-host\bin\rg.exe")
+        extended = PureWindowsPath(
+            r"\\?\C:\atlas\trusted-host\bin\rg.exe"
+        )
+        self.assertNotEqual(extended, ordinary)
+
+    @unittest.skipUnless(os.name == "nt", "Windows junction regression")
+    def test_windows_junction_resolution_preserves_every_directory_hop(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+
+        def create_junction(link: Path, target: Path) -> None:
+            result = subprocess.run(
+                windows_junction_command(link, target),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                f"unable to create Windows junction: {result.stderr}",
+            )
+
+        with tempfile.TemporaryDirectory(
+            prefix="atlas Windows junction chain "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            repository = root / "repository"
+            trusted_bin = root / "trusted-host" / "bin"
+            repository.mkdir()
+            trusted_bin.mkdir(parents=True)
+            trusted_rg = trusted_bin / "rg.exe"
+            trusted_rg.write_bytes(b"synthetic executable identity\n")
+            repository_relay = repository / "directory-relay"
+            external_alias = root / "external-directory-alias"
+            create_junction(repository_relay, trusted_bin)
+            create_junction(external_alias, repository_relay)
+
+            self.assertTrue(
+                atlas_module.executable_path_is_link(
+                    repository_relay.lstat()
+                )
+            )
+            chain = atlas_module.executable_symlink_chain(
+                external_alias / "rg.exe"
+            )
+            self.assertTrue(
+                any(
+                    path.name == "directory-relay"
+                    and path.parent.name == "repository"
+                    for path in chain
+                ),
+                chain,
+            )
+            self.assertTrue(
+                chain[-1].samefile(trusted_rg),
+                (chain[-1], trusted_rg),
+            )
+
     def test_windows_ci_runs_only_portable_sync_contracts(self) -> None:
         workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"
@@ -92,14 +182,45 @@ class CrossPlatformContractTests(unittest.TestCase):
         portable_step = windows_job.split(
             "      - name: Verify generated adapter bundles\n", 1
         )[0]
-        portable_sync_tests = (
-            "test_check_mode_is_state_free_when_scratch_is_absent",
-            "test_check_mode_fails_closed_if_state_appears_during_scan",
-            "test_windows_write_mode_is_rejected_before_repository_lock",
-            "test_windows_promotion_fails_closed_without_handle_relative_rename",
+        command_lines = {
+            line.strip()
+            for line in portable_step.splitlines()
+            if line.startswith("          ")
+            and not line.lstrip().startswith("#")
+        }
+        portable_contracts = (
+            "tests.test_cross_platform_contracts",
+            (
+                "tests.test_atlas_security.AtlasSecurityRegressionTests."
+                "test_host_executable_without_unix_identity_apis_fails_closed_portably"
+            ),
+            (
+                "tests.test_atlas_security.AtlasSecurityRegressionTests."
+                "test_host_executable_rejects_unsupported_platform_before_path_lookup"
+            ),
+            (
+                "tests.test_sync_adapters.SyncAdaptersTransactionTests."
+                "test_check_mode_is_state_free_when_scratch_is_absent"
+            ),
+            (
+                "tests.test_sync_adapters.SyncAdaptersTransactionTests."
+                "test_windows_clean_check_mode_does_not_report_inventory_change"
+            ),
+            (
+                "tests.test_sync_adapters.SyncAdaptersTransactionTests."
+                "test_check_mode_fails_closed_if_state_appears_during_scan"
+            ),
+            (
+                "tests.test_sync_adapters.SyncAdaptersTransactionTests."
+                "test_windows_write_mode_is_rejected_before_repository_lock"
+            ),
+            (
+                "tests.test_sync_adapters.SyncAdaptersTransactionTests."
+                "test_windows_promotion_fails_closed_without_handle_relative_rename"
+            ),
         )
-        for test_name in portable_sync_tests:
-            self.assertIn(test_name, portable_step)
+        for contract in portable_contracts:
+            self.assertIn(contract, command_lines)
         self.assertNotIn("\n          tests.test_sync_adapters\n", portable_step)
 
 

@@ -16,7 +16,7 @@ Claude Code:
 /project-atlas:map-project Create a QUICK map of this small CLI.
 ```
 
-Expected shape: one `PROJECT_ATLAS.md` with scope and depth rationale, observation time or snapshot, purpose, entrypoint, inputs, outputs, dependencies, exclusions, an evidence legend, verification and its exact result, risks, unknowns, project-relative source references, and the next safe action. The workflow should not create a large document tree.
+Expected shape: one `PROJECT_ATLAS.md` with START and FINISH alignment, scope and depth rationale, observation time or snapshot, purpose, entrypoint, inputs, outputs, dependencies, exclusions, an evidence legend, verification and its exact result, risks, unknowns, project-relative source references, run economics, future tasks, and the next safe action. The workflow should not create a large document tree.
 
 ## 2. STANDARD atlas before refactoring
 
@@ -32,7 +32,7 @@ Claude Code:
 /project-atlas:map-project Build a STANDARD current-state and target-state atlas before we refactor this service.
 ```
 
-Expected shape: routed current architecture, runtime, data and authority, priority flows, quality and operations, findings, target architecture, migration plan, open unknowns, and handoff. Mapping alone does not authorize the refactor.
+Expected shape: routed current architecture, runtime, data and authority, priority flows, quality and operations, findings, target architecture, migration plan, open unknowns, and handoff. Product requirements retain START alignment, migration retains future tasks, and handoff retains FINISH alignment plus run economics. Mapping alone does not authorize the refactor.
 
 ## 3. FORENSIC investigation
 
@@ -48,7 +48,7 @@ Claude Code:
 /project-atlas:map-project Use FORENSIC mode. Map every runtime root, data store, state writer, authority boundary, recovery path and test gap. Do not implement changes until I approve the atlas.
 ```
 
-Expected shape: explicit denominators, complete registries for the declared scope, traceability, quantitative coverage, open unknowns, source snapshot, reproducible checks, independent review, and a safe migration plan. The implementation gate is explicit.
+Expected shape: explicit denominators, complete registries for the declared scope, traceability, quantitative coverage, open unknowns, source snapshot, reproducible checks, independent review, and a safe migration plan. Final owner direction and future-task claims are recorded before snapshot and review. The implementation gate is explicit.
 
 ## 4. Incremental refresh and drift
 
@@ -81,6 +81,39 @@ Claude Code:
 ```
 
 Expected behavior: update `LIVE_HANDOFF.md` with the source snapshot, current worktree evidence, completed scope, last validations, unresolved risks, preservation rules, and the next bounded actions.
+
+## Adaptive alignment and run-economics example
+
+If the host cannot render a four-choice picker exactly, the same batch appears in plain chat:
+
+```text
+Question SA-Q001 — What decision should this atlas support?
+A. Orientation before maintenance
+B. A bounded change with named acceptance criteria
+C. A high-consequence audit before any change
+D. Другое — напишу сам
+
+Separate controls: unknown; skip; stop.
+```
+
+The next question is asked only if its answer can still change scope, authority, mode, claim interpretation, output, or backlog. There is no total question cap, but every batch contains only one to three material questions.
+
+Before the resulting deep block, an illustrative PRE record can state:
+
+```text
+Unit: MODEL_TOKENS
+Min: 2500
+Typical: 5000
+Max: 8000
+Basis: bounded manifests and two runtime contours; one authority ambiguity
+Model tier and effort: advanced capability, high effort
+```
+
+These numbers are a forecast, not telemetry. The maximum triggers a checkpoint and reforecast rather than a hard stop. After the block, the POST record uses only exact host-reported model-token values or `UNMEASURED`. If the host exposes no exact weekly-usage signal, no weekly line appears; token counts are never converted into quota percentages.
+
+After the candidate map and backlog exist, FINISH alignment uses the same four-choice contract. A map-changing answer causes an update and another FINISH pass. The final Future Tasks registry may contain any justified number of `TARGET` rows, but mapping does not implement them.
+
+A `READY` task has filled, substantive task fields, an active owner answer, and a safe project-relative source or a visible, unique, non-interaction Atlas section with real content as its technical basis. A `BLOCKED` task may omit only the owner answer: it keeps the same filled task fields and technical basis, and names the blocker as `UNKNOWN:<stable-id>`. If a blocked task cites `USER_INPUT`, that reference must still point to an active answer.
 
 ## Specify an output path
 

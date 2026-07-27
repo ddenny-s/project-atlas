@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="720" viewBox="0 0 1200 720"
+     role="img" aria-labelledby="title desc">
+  <title id="title">Project Atlas — проверяемая карта проекта</title>
+  <desc id="desc">Файлы проекта превращаются в проверяемую карту, где факты, выводы и неизвестное показаны отдельно.</desc>
+
+  <rect width="1200" height="720" rx="28" fill="#071018"/>
+  <rect x="1.5" y="1.5" width="1197" height="717" rx="26.5"
+        fill="none" stroke="#36576A" stroke-width="3"/>
+
+  <g id="title-block"
+     font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="60" y="70" fill="#67E8F9" font-size="52" font-weight="750">
+      НАВЫК ДЛЯ CODEX И CLAUDE CODE
+    </text>
+    <text x="58" y="166" fill="#F8FAFC" font-size="76" font-weight="780"
+          letter-spacing="-1.5">Project Atlas</text>
+    <text x="60" y="238" fill="#DCE8EF" font-size="52" font-weight="680">
+      Из хаоса файлов — в карту,
+    </text>
+    <text x="60" y="298" fill="#DCE8EF" font-size="52" font-weight="680">
+      которую можно проверить
+    </text>
+  </g>
+
+  <g id="project-route"
+     font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <path d="M290 506H318" fill="none" stroke="#67E8F9" stroke-width="5"/>
+    <path d="M318 490L340 506L318 522Z" fill="#67E8F9"/>
+    <path d="M800 506H828" fill="none" stroke="#67E8F9" stroke-width="5"/>
+    <path d="M828 490L850 506L828 522Z" fill="#67E8F9"/>
+
+    <g id="source-files">
+      <rect x="40" y="374" width="240" height="264" rx="20"
+            fill="#0E1D28" stroke="#416B7F" stroke-width="3"/>
+      <text x="66" y="438" fill="#F8FAFC" font-size="52" font-weight="780">
+        ФАЙЛЫ
+      </text>
+      <path d="M68 486H252M68 526H232M68 566H244"
+            fill="none" stroke="#7894A3" stroke-width="10" stroke-linecap="round"/>
+      <circle cx="86" cy="604" r="12" fill="#67E8F9"/>
+      <circle cx="126" cy="604" r="12" fill="#86EFAC"/>
+      <circle cx="166" cy="604" r="12" fill="#FCD34D"/>
+    </g>
+
+    <g id="evidence">
+      <rect x="350" y="374" width="440" height="264" rx="20"
+            fill="#0E1D28" stroke="#416B7F" stroke-width="3"/>
+      <circle cx="380" cy="438" r="11" fill="#86EFAC"/>
+      <text x="414" y="450" fill="#F8FAFC" font-size="52" font-weight="750">
+        ФАКТ
+      </text>
+      <circle cx="380" cy="510" r="11" fill="#FCD34D"/>
+      <text x="414" y="522" fill="#F8FAFC" font-size="52" font-weight="750">
+        ВЫВОД
+      </text>
+      <circle cx="380" cy="582" r="11" fill="#FCA5A5"/>
+      <text x="414" y="594" fill="#F8FAFC" font-size="52" font-weight="750">
+        НЕИЗВЕСТНО
+      </text>
+    </g>
+
+    <g id="atlas-output">
+      <rect x="860" y="374" width="300" height="264" rx="20"
+            fill="#102532" stroke="#67E8F9" stroke-width="3"/>
+      <text x="880" y="438" fill="#F8FAFC" font-size="52" font-weight="780">
+        КАРТА
+      </text>
+      <text x="880" y="516" fill="#DCE8EF" font-size="52"
+            font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+            font-weight="750">PROJECT_</text>
+      <text x="880" y="574" fill="#DCE8EF" font-size="52"
+            font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+            font-weight="750">ATLAS.md</text>
+      <path d="M880 610H1130" fill="none" stroke="#7894A3"
+            stroke-width="8" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>

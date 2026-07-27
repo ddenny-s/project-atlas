@@ -72,9 +72,19 @@ Safe reads reject both symbolic links and hardlinks and pin a file's identity. A
 
 Publication leakage scanning is an advisory defense-in-depth check, not proof that sensitive material is absent. It percent-decodes text before checking for local file URIs, credential-bearing URLs, authorization and bearer values, JWTs, private-key headers, and common token shapes. A diagnostic names the failed boundary but redacts matched material. Human privacy and security review remains mandatory before committing, sharing, or publishing generated artifacts.
 
+## 4.1 Owner alignment and run economics
+
+After reading instructions and establishing the safe boundary, complete `START_ALIGNMENT` before deep work. Ask one to three adaptive questions per batch, with no total cap. Every visible question has exactly four choices A through D, and D is exactly `Другое — напишу сам`. Unknown, skip, and user stop are separate controls. Use plain chat whenever a host picker cannot preserve the exact four-choice shape.
+
+Ask another question only when its answer can materially change scope, authority, mode, interpretation of a material claim, output, or backlog. Otherwise stop semantically. Owner answers use `USER_INPUT` provenance: they may establish direction, scope, acceptance, priority, and `TARGET` backlog, but they never prove a technical current-state fact.
+
+Before every deep block, record a PRE `MODEL_TOKENS` forecast with integer minimum, typical, and maximum values, assumptions, and a host-neutral model capability tier and effort setting. The maximum is a reforecast threshold, not a hard cap. After the block, POST records exact host telemetry or `UNMEASURED`; missing telemetry is never estimated. Weekly usage is shown only from an exact host signal and is never derived from model tokens.
+
+After the candidate map and future-task backlog exist, complete `FINISH_ALIGNMENT`. If an answer changes either, update the affected artifacts, supersede replaced direction records, and repeat the finish loop. FORENSIC does this before its final snapshot and independent reviews.
+
 ## 5. Depth selection
 
-Select QUICK, STANDARD, or FORENSIC before deep reading. Use the risk and complexity factors in [depth-levels.md](depth-levels.md), not repository size alone. Automatic topology excludes tests, fixtures, templates, examples, nested documentation, and conventional root-level test or support filenames while leaving them in the safe inventory. High-impact semantic signals come only from bounded high-confidence declaration units: root README paragraphs, Python module/class/function docstrings, line or block comments before the first declaration after a bounded language preamble, explicit allowlisted config keys, or explicit operator inputs. Package/import/using framing can precede a declaration comment; arbitrary string literals, regular-expression bodies, and comments after the first declaration are not declaration evidence. Compound reasons retain co-evidence within one unit rather than merging unrelated vocabulary.
+Select QUICK, STANDARD, or FORENSIC after START alignment and before deep reading. Use the risk and complexity factors in [depth-levels.md](depth-levels.md), not repository size alone. Automatic topology excludes tests, fixtures, templates, examples, nested documentation, and conventional root-level test or support filenames while leaving them in the safe inventory. High-impact semantic signals come only from bounded high-confidence declaration units: root README paragraphs, Python module/class/function docstrings, line or block comments before the first declaration after a bounded language preamble, explicit allowlisted config keys, or explicit operator inputs. Package/import/using framing can precede a declaration comment; arbitrary string literals, regular-expression bodies, and comments after the first declaration are not declaration evidence. Compound reasons retain co-evidence within one unit rather than merging unrelated vocabulary.
 
 Every completed atlas records exactly one value for:
 
@@ -106,11 +116,11 @@ The sequence is adaptive, but each skipped phase is recorded with a reason.
 
 ### 7.1 Scope and acceptance
 
-Define the product boundary, intended audience, requested decisions, depth, output location, primary signal, secondary validation, exclusions, and completion criteria.
+Define the product boundary, intended audience, requested decisions, depth, output location, primary signal, secondary validation, exclusions, and completion criteria. Preserve the START question and batch records that established owner direction.
 
 ### 7.2 Structural inventory
 
-Identify packages, services, applications, shared libraries, infrastructure, schemas, migrations, tests, generated content, and existing documentation. Record counts and exclusions so later coverage statements have a denominator.
+Record the initial PRE forecast, then identify packages, services, applications, shared libraries, infrastructure, schemas, migrations, tests, generated content, and existing documentation. Record counts and exclusions so later coverage statements have a denominator. Close the block with exact host telemetry or `UNMEASURED`.
 
 ### 7.3 Product and users
 
@@ -168,7 +178,13 @@ Describe the future state separately from current architecture. Tie each target 
 
 Order changes so the system remains observable and recoverable. State prerequisites, compatibility boundaries, data movement, rollout checkpoints, verification, rollback, and the authority required at each gate.
 
-### 7.17 Independent review
+### 7.17 Future tasks and finish alignment
+
+Derive every justified future task from the candidate map without forcing a count or starting implementation. Every row is `TARGET`. Both `READY` and `BLOCKED` need substantive, non-draft `Outcome`, `Basis`, `Affected areas`, `Scope`, `Non-goals`, `Acceptance criteria`, `Dependencies and unknowns`, `Risks`, and `Verification` values. Both also need a safe project-relative source or a visible, unique, non-interaction Atlas section with substantive content referenced as `MAP:<atlas-file>#<stable-anchor>` in `Basis`. `READY` additionally needs active, non-dangling `USER_INPUT:<Question ID>` provenance in `Basis`. `BLOCKED` may omit only that owner input; it still needs the technical basis and canonical `UNKNOWN:<stable-id>` in `Dependencies and unknowns`. Any cited `USER_INPUT` must remain active and non-dangling.
+
+Run FINISH alignment against the candidate map and backlog. If an answer changes them, update the affected artifacts and repeat. In FORENSIC mode, active START and FINISH directions and READY or BLOCKED future tasks receive their canonical `TARGET` traceability links before the final source snapshot.
+
+### 7.18 Independent review
 
 Challenge high-impact claims, coverage denominators, authority boundaries, source freshness, unsupported proposals, and critical (P0) or important (P1) safety risks. The reviewer should try to disprove completeness and correctness, not merely summarize the atlas.
 
@@ -178,7 +194,7 @@ FORENSIC completion retains two independently produced, machine-checkable record
 
 Those records are attestations, not cryptographic reviewer identities. The helper can verify their shape, separation by reference, chronology, snapshot binding, counts, and ledger binding; it cannot authenticate the reviewer or decide that natural-language evidence entails a claim. The host or release governance must enforce actual fresh-context reviewer separation and semantic challenge.
 
-### 7.18 Canonical index and handoff
+### 7.19 Canonical index and handoff
 
 Update the routed index, open unknowns, traceability ledger, source snapshot, last verified checks, current work, next bounded actions, and instructions for resuming safely.
 
@@ -239,6 +255,9 @@ STANDARD completion validates the routed document set section by section: canoni
 An atlas is complete for its declared scope when:
 
 - required mode artifacts exist and route to one another;
+- START and FINISH alignment have a final recorded stop and FINISH reflects the final candidate;
+- every deep block has PRE and POST economics without estimated telemetry;
+- the future-task registry has at least one traceable READY or honest BLOCKED task;
 - material claims use evidence classes and current source references;
 - current and target architecture are visibly separate;
 - important state, authority, runtime, and recovery boundaries have either evidence or explicit unknowns;

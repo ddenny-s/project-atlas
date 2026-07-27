@@ -29,6 +29,83 @@ TRACE_HEADER = (
     "fact_id\tclaim_kind\tclaim\tsource_type\tsource_ref\tobserved_at\tstatus\t"
     "atlas_refs\tnotes\n"
 )
+QUESTION_HEADER = (
+    "| Question ID | Batch ID | Topic | Question | Option A | Option B | Option C | "
+    "Option D | Selected | Free-form note | Answer state | Map effect | Provenance | "
+    "Answered at |"
+)
+QUESTION_SEPARATOR = "| " + " | ".join(["---"] * 14) + " |"
+BATCH_HEADER = (
+    "| Batch ID | Sequence | Question IDs | Remaining material gaps | Decision | "
+    "Decision provenance | Status |"
+)
+BATCH_SEPARATOR = "| " + " | ".join(["---"] * 7) + " |"
+ECONOMICS_HEADER = (
+    "| Run ID | Block ID | Entry | Block | Unit | Min | Typical | Max | Basis | "
+    "Model tier and effort | Input | Output | Reasoning | Total | Telemetry | "
+    "Variance vs typical | Recorded at | Status |"
+)
+ECONOMICS_SEPARATOR = "| " + " | ".join(["---"] * 18) + " |"
+FUTURE_TASKS_HEADER = (
+    "| Task ID | Claim kind | Priority | Outcome | Basis | Affected areas | Scope | "
+    "Non-goals | Acceptance criteria | Dependencies and unknowns | Risks | "
+    "Verification | Status |"
+)
+FUTURE_TASKS_SEPARATOR = "| " + " | ".join(["---"] * 13) + " |"
+
+
+def completed_alignment_section(
+    section_name: str,
+    phase: str,
+    question: str,
+    selected_option: str,
+    provenance: str,
+) -> str:
+    return f"""## {section_name}
+
+{QUESTION_HEADER}
+{QUESTION_SEPARATOR}
+| Q-{phase}-1 | B-{phase}-1 | Target direction | {question} | {selected_option} | Narrow the contour | Replace the contour | Другое — напишу сам | A | - | ANSWERED | TARGET: {selected_option} | {provenance} | 2026-07-22T10:00:00Z |
+
+{BATCH_HEADER}
+{BATCH_SEPARATOR}
+| B-{phase}-1 | 1 | Q-{phase}-1 | None | STOP_STABLE | PROTOCOL:SEMANTIC_STOP | COMPLETE |
+"""
+
+
+def completed_run_economics_section() -> str:
+    return f"""## Run Economics
+
+{ECONOMICS_HEADER}
+{ECONOMICS_SEPARATOR}
+| RUN-1 | BLOCK-1 | PRE | Inventory and scope | MODEL_TOKENS | 800 | 1000 | 1600 | Safe inventory size and declared depth | standard effort | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | 2026-07-22T09:00:00Z | MODELLED |
+| RUN-1 | BLOCK-1 | POST | Inventory and scope | MODEL_TOKENS | UNMEASURED | UNMEASURED | UNMEASURED | PRE:BLOCK-1 | standard effort | 500 | 400 | 300 | 1200 | HOST:run-1-block-1 | +200 | 2026-07-22T11:00:00Z | MEASURED |
+"""
+
+
+def completed_future_tasks_section(
+    source_ref: str,
+    map_filename: str,
+    provenance: str,
+    *,
+    outcome: str = "Preserve the selected target direction",
+) -> str:
+    map_anchor = (
+        "next-safe-action" if map_filename == "PROJECT_ATLAS.md" else "sequence"
+    )
+    return f"""## Future Tasks
+
+{FUTURE_TASKS_HEADER}
+{FUTURE_TASKS_SEPARATOR}
+| TASK-1 | TARGET | P1 | {outcome} | {provenance}; {source_ref}; MAP:{map_filename}#{map_anchor} | mapped runtime | Bounded target contour | Production rollout | The target contour is mapped and validated | None | Drift from current runtime | Run focused contract tests | READY |
+"""
+
+
+def interaction_section_body(section: str) -> str:
+    _heading, separator, body = section.partition("\n\n")
+    if not separator:
+        raise AssertionError("interaction test section has no body")
+    return body.rstrip()
 
 
 def add_table_rows(path: Path, header: str, separator: str, rows: list[str]) -> None:
@@ -121,6 +198,44 @@ Escalation condition: Escalate when additional runtimes or stores are introduced
             ): """| Stage | Change | Preconditions | Compatibility and state/data handling | Primary signal | Secondary signals | Decision authority | Rollback | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | M-1 | Retain bounded retries | Current fixture behavior remains in scope | No data migration | Retry behavior passes | Atlas validates | Maintainer | Restore prior documentation | ACTIVE |""",
+            (
+                "PRODUCT_AND_REQUIREMENTS.md",
+                "Start Alignment",
+            ): interaction_section_body(
+                completed_alignment_section(
+                    "Start Alignment",
+                    "START",
+                    "Which owner should remain authoritative?",
+                    "Keep current owner",
+                    "USER_INPUT:Q-START-1",
+                )
+            ),
+            (
+                "LIVE_HANDOFF.md",
+                "Finish Alignment",
+            ): interaction_section_body(
+                completed_alignment_section(
+                    "Finish Alignment",
+                    "FINISH",
+                    "Is the bounded map stable enough to finish?",
+                    "Finish with current map",
+                    "USER_INPUT:Q-FINISH-1",
+                )
+            ),
+            (
+                "LIVE_HANDOFF.md",
+                "Run Economics",
+            ): interaction_section_body(completed_run_economics_section()),
+            (
+                "MIGRATION_PLAN.md",
+                "Future Tasks",
+            ): interaction_section_body(
+                completed_future_tasks_section(
+                    "service/worker.py:L10-L23",
+                    "MIGRATION_PLAN.md",
+                    "USER_INPUT:Q-START-1",
+                )
+            ),
         }
         section_heading = re.compile(r"(?m)^## ([^\n]+)\n")
         for artifact in sorted(output.glob("*.md")):
@@ -237,6 +352,55 @@ Escalation condition: Escalate when additional runtimes or stores are introduced
                 "| U-1 | Recovery owner remains unknown | Recovery can stall | Ask the maintainer | Maintainer | ACTIVE |"
             ],
         )
+        add_table_rows(
+            output / "PRODUCT_AND_REQUIREMENTS.md",
+            QUESTION_HEADER,
+            QUESTION_SEPARATOR,
+            [
+                "| Q-START-1 | B-START-1 | Target direction | Which target owner should remain authoritative? | Keep current owner | Narrow the contour | Replace the contour | Другое — напишу сам | A | - | ANSWERED | TARGET: Keep current owner | USER_INPUT:Q-START-1 | 2026-07-22T10:00:00Z |"
+            ],
+        )
+        add_table_rows(
+            output / "PRODUCT_AND_REQUIREMENTS.md",
+            BATCH_HEADER,
+            BATCH_SEPARATOR,
+            [
+                "| B-START-1 | 1 | Q-START-1 | None | STOP_STABLE | PROTOCOL:SEMANTIC_STOP | COMPLETE |"
+            ],
+        )
+        add_table_rows(
+            output / "LIVE_HANDOFF.md",
+            QUESTION_HEADER,
+            QUESTION_SEPARATOR,
+            [
+                "| Q-FINISH-1 | B-FINISH-1 | Completion direction | Is the bounded forensic map stable enough to finish? | Finish with current map | Continue investigation | Reduce declared scope | Другое — напишу сам | A | - | ANSWERED | TARGET: Finish with current map | USER_INPUT:Q-FINISH-1 | 2026-07-22T10:30:00Z |"
+            ],
+        )
+        add_table_rows(
+            output / "LIVE_HANDOFF.md",
+            BATCH_HEADER,
+            BATCH_SEPARATOR,
+            [
+                "| B-FINISH-1 | 1 | Q-FINISH-1 | None | STOP_STABLE | PROTOCOL:SEMANTIC_STOP | COMPLETE |"
+            ],
+        )
+        add_table_rows(
+            output / "LIVE_HANDOFF.md",
+            ECONOMICS_HEADER,
+            ECONOMICS_SEPARATOR,
+            [
+                "| RUN-1 | BLOCK-1 | PRE | Inventory and scope | MODEL_TOKENS | 800 | 1000 | 1600 | Safe inventory size and declared depth | forensic effort | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | 2026-07-22T09:00:00Z | MODELLED |",
+                "| RUN-1 | BLOCK-1 | POST | Inventory and scope | MODEL_TOKENS | UNMEASURED | UNMEASURED | UNMEASURED | PRE:BLOCK-1 | forensic effort | 500 | 400 | 300 | 1200 | HOST:run-1-block-1 | +200 | 2026-07-22T11:00:00Z | MEASURED |",
+            ],
+        )
+        add_table_rows(
+            output / "MIGRATION_PLAN.md",
+            FUTURE_TASKS_HEADER,
+            FUTURE_TASKS_SEPARATOR,
+            [
+                "| TASK-1 | TARGET | P1 | Preserve the selected target direction | USER_INPUT:Q-START-1; legacy_system/gateway.py:L8-L11; MAP:MIGRATION_PLAN.md#sequence | legacy_system | Bounded target contour | Production rollout | The target contour is mapped and validated | None | Drift from current runtime | Run focused contract tests | READY |"
+            ],
+        )
 
         review_placeholder = "0" * 64
         add_table_rows(
@@ -275,6 +439,9 @@ Escalation condition: Escalate when additional runtimes or stores are introduced
             ("EV-M1", "TARGET", "Retain the current writer", "FILE", "legacy_system/migration_writer.py:L8-L13", "MIGRATION_PLAN.md#migration/M-1", ""),
             ("EV-C1", "CONFIRMED", "One gateway runtime is traced", "FILE", "legacy_system/gateway.py:L8-L11", "ATLAS_INDEX.md#coverage/COV-1", ""),
             ("EV-U1", "UNKNOWN", "Recovery owner remains unknown", "FILE", "README.md:L8-L9", "OPEN_UNKNOWNS.md#unknowns/U-1", ""),
+            ("EV-QS", "TARGET", "Which target owner should remain authoritative?: Keep current owner", "EXTERNAL", "USER_INPUT:Q-START-1", "PRODUCT_AND_REQUIREMENTS.md#direction/Q-START-1", ""),
+            ("EV-QF", "TARGET", "Is the bounded forensic map stable enough to finish?: Finish with current map", "EXTERNAL", "USER_INPUT:Q-FINISH-1", "LIVE_HANDOFF.md#direction/Q-FINISH-1", ""),
+            ("EV-T1", "TARGET", "Preserve the selected target direction", "FILE", "legacy_system/gateway.py:L8-L11", "MIGRATION_PLAN.md#future-tasks/TASK-1", ""),
             ("EV-RC", "CONFIRMED", "CORRECTNESS review PASS: 0 Critical, 0 Important", "EXTERNAL", "review/REV-CORRECTNESS", "LIVE_HANDOFF.md#reviews/REV-CORRECTNESS", ""),
             ("EV-RS", "CONFIRMED", "SECURITY review PASS: 0 Critical, 0 Important", "EXTERNAL", "review/REV-SECURITY", "LIVE_HANDOFF.md#reviews/REV-SECURITY", ""),
             (
@@ -330,17 +497,151 @@ Escalation condition: Escalate when additional runtimes or stores are introduced
         assert_file(self, ATLAS_SCRIPT)
         result = run_atlas("--help")
         self.assertEqual(result.returncode, 0, result.stderr)
-        for command in ("select-mode", "inventory", "init", "validate", "snapshot"):
+        for command in (
+            "select-mode",
+            "inventory",
+            "estimate-budget",
+            "init",
+            "validate",
+            "snapshot",
+        ):
             with self.subTest(command=command):
                 self.assertIn(command, result.stdout)
 
     def test_every_subcommand_has_help(self) -> None:
         assert_file(self, ATLAS_SCRIPT)
-        for command in ("select-mode", "inventory", "init", "validate", "snapshot"):
+        for command in (
+            "select-mode",
+            "inventory",
+            "estimate-budget",
+            "init",
+            "validate",
+            "snapshot",
+        ):
             with self.subTest(command=command):
                 result = run_atlas(command, "--help")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("usage", result.stdout.lower())
+
+    def test_estimate_budget_is_deterministic_transparent_and_host_neutral(self) -> None:
+        fixture = FIXTURES_ROOT / "standard_service"
+        first = run_atlas(
+            "estimate-budget",
+            "--project",
+            fixture,
+            "--mode",
+            "STANDARD",
+        )
+        second = run_atlas(
+            "estimate-budget",
+            "--project",
+            fixture,
+            "--mode",
+            "STANDARD",
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(first.stdout, second.stdout)
+
+        payload = json.loads(first.stdout)
+        self.assertEqual(payload["status"], "MODELLED")
+        self.assertEqual(payload["basis"], "ASSUMPTION")
+        self.assertEqual(payload["unit"], "MODEL_TOKENS")
+        self.assertEqual(
+            [block["block_id"] for block in payload["blocks"]],
+            [
+                "start_alignment_batch",
+                "inventory_scope",
+                "contour_investigation",
+                "synthesis_tasks",
+                "finish_alignment_batch",
+                "validation_handoff",
+            ],
+        )
+        self.assertEqual(
+            payload["source_token_proxy"]["formula"],
+            "ceil(safe_readable_bytes / 4), rounded up to 100",
+        )
+        self.assertEqual(
+            payload["maximum"]["meaning"],
+            "REFORECAST_THRESHOLD_NOT_HARD_CAP",
+        )
+        self.assertIn("pre-existing conversation", payload["exclusions"])
+        self.assertIn("weekly quota conversion", payload["exclusions"])
+        normalized = first.stdout.casefold()
+        for vendor_name in ("openai", "codex", "claude", "anthropic", "gemini"):
+            self.assertNotIn(vendor_name, normalized)
+        for block in payload["blocks"]:
+            self.assertEqual(block["status"], "MODELLED")
+            self.assertEqual(block["basis"], "ASSUMPTION")
+            self.assertLessEqual(block["min"], block["typical"])
+            self.assertLessEqual(block["typical"], block["max"])
+            self.assertEqual(block["max_semantics"], "REFORECAST_THRESHOLD_NOT_HARD_CAP")
+
+    def test_estimate_budget_is_monotonic_by_safe_size_and_mode(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="atlas budget monotonic ") as temp_dir:
+            root = Path(temp_dir)
+            small = root / "small"
+            large = root / "large"
+            small.mkdir()
+            large.mkdir()
+            (small / "main.py").write_text("pass\n", encoding="utf-8")
+            (large / "main.py").write_text("pass\n" * 20_000, encoding="utf-8")
+
+            def estimate(project: Path, mode: str) -> dict[str, object]:
+                result = run_atlas(
+                    "estimate-budget",
+                    "--project",
+                    project,
+                    "--mode",
+                    mode,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return json.loads(result.stdout)
+
+            small_standard = estimate(small, "STANDARD")
+            large_standard = estimate(large, "STANDARD")
+            self.assertLess(
+                small_standard["totals"]["typical"],
+                large_standard["totals"]["typical"],
+            )
+            mode_totals = [
+                estimate(small, mode)["totals"]["typical"]
+                for mode in ("QUICK", "STANDARD", "FORENSIC")
+            ]
+            self.assertLess(mode_totals[0], mode_totals[1])
+            self.assertLess(mode_totals[1], mode_totals[2])
+            forensic = estimate(small, "FORENSIC")
+            self.assertEqual(
+                [block["block_id"] for block in forensic["blocks"][-2:]],
+                ["correctness_review", "security_review"],
+            )
+
+    def test_estimate_budget_excludes_private_and_ignored_contents(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="atlas budget privacy ") as temp_dir:
+            project = Path(temp_dir) / "project"
+            project.mkdir()
+            (project / "main.py").write_text("print('public')\n", encoding="utf-8")
+            private = project / ".atlas-private"
+            private.mkdir()
+            secret = "private-canary-" + ("x" * 100_000)
+            (private / "credentials.txt").write_text(secret, encoding="utf-8")
+            result = run_atlas(
+                "estimate-budget",
+                "--project",
+                project,
+                "--mode",
+                "QUICK",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["safe_inventory"]["file_count"], 1)
+            self.assertEqual(
+                payload["safe_inventory"]["safe_readable_bytes"],
+                len("print('public')\n".encode("utf-8")),
+            )
+            self.assertNotIn("credentials", result.stdout.casefold())
+            self.assertNotIn("private-canary", result.stdout)
 
     def test_validate_help_discloses_deterministic_replay_sort_contract(self) -> None:
         result = run_atlas("validate", "--help")
@@ -397,6 +698,31 @@ Escalation condition: Escalate when additional runtimes or stores are introduced
             self.assertEqual(synthetic_payload["signals"]["runtime_count"], 2)
             self.assertFalse(synthetic_payload["signals"]["production"])
             self.assertFalse(synthetic_payload["signals"]["financial_data"])
+
+    def test_benchmark_support_script_does_not_hide_sibling_product_runtime(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="atlas benchmark support topology ") as temp_dir:
+            project = Path(temp_dir) / "project"
+            scripts = project / "scripts"
+            scripts.mkdir(parents=True)
+            (project / "README.md").write_text(
+                "# Runtime pair\n\nOne product server plus one offline benchmark tool.\n",
+                encoding="utf-8",
+            )
+            entrypoint = (
+                "def main():\n"
+                "    return 0\n\n"
+                "if __name__ == '__main__':\n"
+                "    raise SystemExit(main())\n"
+            )
+            (scripts / "benchmark_atlas.py").write_text(entrypoint, encoding="utf-8")
+            (scripts / "server.py").write_text(entrypoint, encoding="utf-8")
+
+            result = run_atlas("inventory", "--project", project)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertNotIn("scripts/benchmark_atlas.py", payload["entrypoints"])
+            self.assertIn("scripts/server.py", payload["entrypoints"])
+            self.assertEqual(payload["signals"]["runtime_count"], 1)
 
     def test_four_runtimes_with_one_state_writer_requires_forensic_mode(self) -> None:
         result = run_atlas(
@@ -1994,6 +2320,14 @@ Conflicting automatic signals: No conflict; the automatic recommendation was QUI
 Intentionally omitted coverage: No lower-depth override; external deployment remains outside the declared investigation scope.
 Escalation condition: Escalate when another runtime, shared state writer, or production authority boundary is confirmed.
 
+{completed_alignment_section(
+    "Start Alignment",
+    "START",
+    "Which local runtime direction should guide this map?",
+    "Keep the bounded CLI contour",
+    "USER_INPUT:Q-START-1",
+)}
+
 ## Evidence Snapshot
 
 Observed at: 2026-07-22T00:00:00Z
@@ -2053,6 +2387,22 @@ Inspect the caller that supplies production inputs before expanding this atlas b
 ## Unknowns
 
 - UNKNOWN: production invocation and deployment configuration remain outside the declared scope.
+
+{completed_alignment_section(
+    "Finish Alignment",
+    "FINISH",
+    "Is this bounded QUICK map stable enough to finish?",
+    "Finish with the current map",
+    "USER_INPUT:Q-FINISH-1",
+)}
+
+{completed_run_economics_section()}
+
+{completed_future_tasks_section(
+    "quick_cli/runtime.py:L1",
+    "PROJECT_ATLAS.md",
+    "USER_INPUT:Q-START-1",
+)}
 """,
                 encoding="utf-8",
             )

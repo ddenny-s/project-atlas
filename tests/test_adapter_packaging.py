@@ -22,6 +22,12 @@ from tests.support import (
     tree_digest,
 )
 
+HOST_GUIDANCE_RELATIVE = Path("references/host-guidance.md")
+HOST_GUIDANCE_SOURCES = {
+    "codex": CODEX_ADAPTER / "MODEL_GUIDANCE.md",
+    "claude-code": CLAUDE_ADAPTER / "MODEL_GUIDANCE.md",
+}
+
 
 class AdapterPackagingTests(unittest.TestCase):
     def test_ci_declares_python_310_floor_and_python_313_coverage(self) -> None:
@@ -145,6 +151,236 @@ class AdapterPackagingTests(unittest.TestCase):
         self.assertIsInstance(interface, dict)
         self.assertEqual(interface.get("capabilities"), ["Read", "Write"])
 
+    def test_codex_default_prompts_are_mode_neutral_and_aligned(self) -> None:
+        expected = (
+            "Use $project-atlas:map-project to create a verifiable atlas "
+            "of this project."
+        )
+        manifest = load_json(
+            self,
+            CODEX_ADAPTER / ".codex-plugin" / "plugin.json",
+        )
+        self.assertEqual(manifest["interface"].get("defaultPrompt"), [expected])
+
+        metadata = (
+            CODEX_ADAPTER
+            / "skills"
+            / "map-project"
+            / "agents"
+            / "openai.yaml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(f'default_prompt: "{expected}"', metadata)
+        self.assertNotIn("STANDARD", manifest["interface"]["defaultPrompt"][0])
+        self.assertNotIn("STANDARD", metadata)
+
+    def test_host_guidance_sources_are_dated_provider_starting_points(self) -> None:
+        common_markers = (
+            "checked_at: 2026-07-26",
+            "status: PROVIDER_BASED_STARTING_POINT",
+            "atlas_benchmark_status: NOT_YET_ATLAS_BENCHMARKED",
+            "exactly four visible choices",
+            "1-3 questions per interaction",
+            "unlimited total questions",
+            "semantic stop",
+            "effective resolved model",
+            "exact weekly remaining percentage",
+            "timestamp",
+            "source",
+            "omit the quota line entirely",
+            "never infer quota from token",
+        )
+        host_markers = {
+            "codex": (
+                "QUICK / read-heavy | GPT-5.6 Terra | `medium`",
+                "STANDARD | GPT-5.6 Sol | `high`",
+                "FORENSIC / adversarial | GPT-5.6 Sol | `xhigh`",
+                "plain chat with A-D",
+                "D is exactly `Другое — напишу сам`",
+                "Never set `max` or `ultra` globally",
+                "https://learn.chatgpt.com/docs/pricing#what-are-the-usage-limits-for-my-plan",
+                "https://developers.openai.com/api/docs/guides/latest-model#using-gpt-5-6",
+            ),
+            "claude-code": (
+                "QUICK | `sonnet` | `high`",
+                "STANDARD | `opus` | `high`",
+                "FORENSIC / adversarial | `best` | `xhigh`",
+                "`best` uses Fable 5 when the organization has access to it",
+                "otherwise the latest Opus model",
+                "On the Anthropic API and Claude Platform on AWS, `opus` currently "
+                "resolves to Opus 5",
+                "Opus 5 requires Claude Code v2.1.219 or later",
+                "Claude Code version",
+                "Claude Code v2.1.207",
+                "Opus 4.8",
+                "Aliases vary by provider and update over time",
+                "`ultracode` is a session-only Claude Code setting, not an effort level",
+                "`xhigh` plus dynamic workflows",
+                "`--effort ultracode` form requires Claude Code v2.1.203 or later",
+                "explicitly budgeted",
+                "not a default for Atlas or a global setting",
+                "Codex remains the primary adapter",
+                "`ultrathink`",
+                "one turn",
+                "does not change API effort",
+                "`haiku` is allowed only for bounded extraction or classification",
+                "never for a whole Atlas run",
+                "Do not claim a native question picker",
+                "plain-chat A-D",
+                "https://code.claude.com/docs/en/model-config#model-aliases",
+                "https://code.claude.com/docs/en/model-config#choose-an-effort-level",
+            ),
+        }
+
+        for adapter, source in HOST_GUIDANCE_SOURCES.items():
+            content = " ".join(source.read_text(encoding="utf-8").split())
+            with self.subTest(adapter=adapter):
+                for marker in (*common_markers, *host_markers[adapter]):
+                    self.assertIn(marker, content)
+                entrypoint = (
+                    REPO_ROOT
+                    / "adapters"
+                    / adapter
+                    / "skills"
+                    / "map-project"
+                    / "SKILL.md"
+                ).read_text(encoding="utf-8")
+                self.assertIn(
+                    "When `references/host-guidance.md` is present, read it",
+                    entrypoint,
+                )
+
+        claude_surfaces = (
+            HOST_GUIDANCE_SOURCES["claude-code"],
+            REPO_ROOT / "README.md",
+            REPO_ROOT / "docs" / "README.ru.md",
+            REPO_ROOT / "docs" / "adapters.md",
+        )
+        for surface in claude_surfaces:
+            content = surface.read_text(encoding="utf-8")
+            with self.subTest(surface=surface):
+                for current_marker in (
+                    "Fable 5",
+                    "Opus 5",
+                    "2.1.219",
+                    "2.1.207",
+                    "Opus 4.8",
+                    "ultracode",
+                    "ultrathink",
+                ):
+                    self.assertIn(current_marker, content)
+                for stale_marker in (
+                    "`best` is currently equivalent to the dynamic `opus` alias",
+                    "`best` as equivalent to the dynamic `opus` alias",
+                    "`best` сейчас равен динамическому псевдониму `opus`",
+                    "`opus` currently resolves to Opus 4.7",
+                    "`opus` resolves to Opus 4.7",
+                    "`opus` сейчас выбирает Opus 4.7",
+                ):
+                    self.assertNotIn(stale_marker, content)
+
+        russian_homepage = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        for marker in (
+            "`best` использует Fable 5",
+            "Anthropic API и Claude Platform on AWS",
+            "`opus` сейчас выбирает Opus 5",
+            "Claude Code 2.1.219",
+            "Claude Code 2.1.207",
+            "Opus 4.8",
+            "`ultracode`",
+            "только на текущую сессию",
+            "`xhigh` и динамические рабочие процессы",
+            "`--effort ultracode`",
+            "Claude Code 2.1.203",
+            "явно согласованного бюджета",
+            "`ultrathink`",
+            "не меняет effort, передаваемый API",
+            "Codex остаётся основным адаптером",
+        ):
+            with self.subTest(russian_homepage_marker=marker):
+                self.assertIn(marker, russian_homepage)
+
+    def test_adapter_docs_explain_host_guidance_and_interaction_fallbacks(self) -> None:
+        documentation = " ".join(
+            (REPO_ROOT / "docs" / "adapters.md").read_text(encoding="utf-8").split()
+        )
+        markers = (
+            "`MODEL_GUIDANCE.md` is the adapter-owned source",
+            "`references/host-guidance.md`",
+            "only intentionally different file at a common payload path",
+            "Core stays vendor-neutral",
+            "`checked_at: 2026-07-26`",
+            "`PROVIDER_BASED_STARTING_POINT`",
+            "`NOT_YET_ATLAS_BENCHMARKED`",
+            "exactly four visible choices",
+            "D is exactly `Другое — напишу сам`",
+            "Claude Code adapter makes no native-picker claim",
+            "plain-chat A-D",
+            "1-3 questions per interaction",
+            "unlimited total count",
+            "semantic stop",
+            "exact weekly remaining percentage",
+            "omit the quota line",
+            "never converts tokens into quota",
+            "effective resolved model",
+            "Claude Code version",
+            "`best` uses Fable 5 when the organization has access to it",
+            "Anthropic API and Claude Platform on AWS",
+            "`opus` resolves to Opus 5",
+            "Opus 5 requires Claude Code v2.1.219 or later",
+            "Claude Code v2.1.207",
+            "Opus 4.8",
+            "Alias resolution varies by provider and updates over time",
+            "`ultracode` is session-only",
+            "`xhigh` plus dynamic workflows",
+            "`--effort ultracode`",
+            "v2.1.203",
+            "explicitly budgeted",
+            "`ultrathink` keyword requests one-off deeper reasoning",
+            "API effort unchanged",
+            "Codex remains the primary adapter",
+        )
+        for marker in markers:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, documentation)
+
+    def test_packaged_host_guidance_is_the_only_common_payload_difference(self) -> None:
+        payloads: dict[str, dict[Path, bytes]] = {}
+        for adapter, adapter_root in (
+            ("codex", CODEX_ADAPTER),
+            ("claude-code", CLAUDE_ADAPTER),
+        ):
+            bundle = adapter_root / "skills" / "map-project"
+            payloads[adapter] = {
+                path.relative_to(bundle): path.read_bytes()
+                for path in bundle.rglob("*")
+                if path.is_file()
+                and "__pycache__" not in path.relative_to(bundle).parts
+                and path.suffix not in {".pyc", ".pyo"}
+                and path.name != ".DS_Store"
+            }
+            packaged = bundle / HOST_GUIDANCE_RELATIVE
+            with self.subTest(adapter=adapter, path=HOST_GUIDANCE_RELATIVE):
+                assert_file(self, packaged)
+                self.assertEqual(
+                    packaged.read_bytes(),
+                    HOST_GUIDANCE_SOURCES[adapter].read_bytes(),
+                )
+
+        codex_payload = dict(payloads["codex"])
+        claude_payload = dict(payloads["claude-code"])
+        codex_payload.pop(Path("agents/openai.yaml"))
+        codex_guidance = codex_payload.pop(HOST_GUIDANCE_RELATIVE)
+        claude_guidance = claude_payload.pop(HOST_GUIDANCE_RELATIVE)
+        self.assertNotEqual(
+            codex_guidance,
+            claude_guidance,
+            "host guidance must describe each host rather than silently converge",
+        )
+        self.assertEqual(set(codex_payload), set(claude_payload))
+        for relative in sorted(codex_payload):
+            with self.subTest(path=relative):
+                self.assertEqual(codex_payload[relative], claude_payload[relative])
+
     def test_claude_adapter_capability_contract_is_explicit(self) -> None:
         documentation = (REPO_ROOT / "docs" / "adapters.md").read_text(encoding="utf-8")
         section = documentation.split("## Claude Code adapter", 1)[1].split(
@@ -213,15 +449,69 @@ class AdapterPackagingTests(unittest.TestCase):
         )
 
     def test_release_docs_distinguish_ci_from_manual_clean_profile_gate(self) -> None:
-        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8").lower()
-        for marker in (
-            "disposable clean profiles",
-            "before creating the version tag or github release",
-            "manual",
-            "not claimed as a github actions check",
+        readmes = {
+            "Russian homepage": (
+                REPO_ROOT / "README.md",
+                (
+                    "одноразовые чистые профили",
+                    "создания тега версии или github release",
+                    "ручной гейт",
+                    "не считается проверкой github actions",
+                ),
+            ),
+            "Russian documentation": (
+                REPO_ROOT / "docs" / "README.ru.md",
+                (
+                    "одноразовые чистые профили",
+                    "создания тега версии или github release",
+                    "ручной гейт",
+                    "не считается проверкой github actions",
+                ),
+            ),
+        }
+        for language, (path, markers) in readmes.items():
+            readme = path.read_text(encoding="utf-8").lower()
+            for marker in markers:
+                with self.subTest(language=language, marker=marker):
+                    self.assertIn(marker, readme)
+
+    def test_russian_documentation_mirrors_the_public_homepage(self) -> None:
+        homepage = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        documentation = (REPO_ROOT / "docs" / "README.ru.md").read_text(
+            encoding="utf-8"
+        )
+        expected_documentation = homepage
+        for homepage_prefix, documentation_prefix in (
+            ('src="./assets/', 'src="../assets/'),
+            ("](./tests/", "](../tests/"),
+            ("](./core/", "](../core/"),
+            ("](./scripts/", "](../scripts/"),
+            ("](./benchmarks/", "](../benchmarks/"),
+            ('href="./benchmarks/', 'href="../benchmarks/'),
+            ("](./SECURITY", "](../SECURITY"),
+            ("](./CONTRIBUTING", "](../CONTRIBUTING"),
+            ("](./LICENSE", "](../LICENSE"),
+            ("](./docs/", "](./"),
         ):
-            with self.subTest(marker=marker):
-                self.assertIn(marker, readme)
+            expected_documentation = expected_documentation.replace(
+                homepage_prefix,
+                documentation_prefix,
+            )
+        self.assertEqual(documentation, expected_documentation)
+        for root_cwd_command in (
+            "./scripts/install.sh --user-scope",
+            "./scripts/install-claude.sh",
+            "./scripts/install.sh --user-scope --force",
+            "./scripts/install-claude.sh --force",
+        ):
+            with self.subTest(root_cwd_command=root_cwd_command):
+                self.assertEqual(
+                    documentation.count(root_cwd_command),
+                    homepage.count(root_cwd_command),
+                    "documentation commands must still run from the repository root",
+                )
+        self.assertIn("](../scripts/benchmark_atlas.py)", documentation)
+        self.assertNotIn("](./scripts/benchmark_atlas.py)", documentation)
 
     def test_marketplace_manifests_exist(self) -> None:
         manifests = {
@@ -350,12 +640,41 @@ class AdapterPackagingTests(unittest.TestCase):
             shutil.copytree(REPO_ROOT / "adapters", clone / "adapters")
             shutil.copytree(REPO_ROOT / "scripts", clone / "scripts")
 
+            bootstrap = run_command(
+                [sys.executable, clone / "scripts" / "sync_adapters.py"],
+                cwd=clone,
+            )
+            self.assertEqual(bootstrap.returncode, 0, bootstrap.stderr)
+
             drifted = clone / "adapters" / "codex" / "skills" / "map-project" / "SKILL.md"
             assert_file(self, drifted)
             drifted.write_text(drifted.read_text(encoding="utf-8") + "\nDRIFT-CANARY\n", encoding="utf-8")
+            guidance = (
+                clone
+                / "adapters"
+                / "codex"
+                / "skills"
+                / "map-project"
+                / HOST_GUIDANCE_RELATIVE
+            )
+            assert_file(self, guidance)
+            guidance.write_text(
+                guidance.read_text(encoding="utf-8") + "\nHOST-DRIFT-CANARY\n",
+                encoding="utf-8",
+            )
+            orphan = guidance.with_name("unexpected-host-guidance.md")
+            orphan.write_text("ORPHAN-CANARY\n", encoding="utf-8")
 
             check = run_command([sys.executable, clone / "scripts" / "sync_adapters.py", "--check"], cwd=clone)
             self.assertNotEqual(check.returncode, 0, "--check must reject adapter drift")
+            self.assertIn(
+                "content differs: references/host-guidance.md",
+                check.stderr,
+            )
+            self.assertIn(
+                "unexpected file: references/unexpected-host-guidance.md",
+                check.stderr,
+            )
 
             repair = run_command([sys.executable, clone / "scripts" / "sync_adapters.py"], cwd=clone)
             self.assertEqual(repair.returncode, 0, repair.stderr)
@@ -363,6 +682,11 @@ class AdapterPackagingTests(unittest.TestCase):
                 drifted.read_bytes(),
                 (clone / "core" / "skill" / "map-project" / "SKILL.md").read_bytes(),
             )
+            self.assertEqual(
+                guidance.read_bytes(),
+                (clone / "adapters" / "codex" / "MODEL_GUIDANCE.md").read_bytes(),
+            )
+            self.assertFalse(orphan.exists())
 
             first_digest = tree_digest(clone / "adapters", excluded_names={"__pycache__"})
             second_sync = run_command([sys.executable, clone / "scripts" / "sync_adapters.py"], cwd=clone)
@@ -372,6 +696,34 @@ class AdapterPackagingTests(unittest.TestCase):
                 first_digest,
                 "a second sync changed already-synchronized adapter output",
             )
+
+    @unittest.skipIf(os.name == "nt", "symlink creation is not portable on Windows CI")
+    def test_sync_rejects_a_symlinked_host_guidance_source(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="atlas guidance source symlink ") as temp_dir:
+            clone = Path(temp_dir) / "project atlas"
+            clone.mkdir()
+            shutil.copytree(REPO_ROOT / "core", clone / "core")
+            shutil.copytree(REPO_ROOT / "adapters", clone / "adapters")
+            shutil.copytree(REPO_ROOT / "scripts", clone / "scripts")
+
+            source = clone / "adapters" / "codex" / "MODEL_GUIDANCE.md"
+            source.unlink()
+            outside = clone / "foreign-guidance.md"
+            outside.write_text("must-not-be-packaged\n", encoding="utf-8")
+            source.symlink_to(outside)
+
+            result = run_command(
+                [sys.executable, clone / "scripts" / "sync_adapters.py", "--check"],
+                cwd=clone,
+                timeout=5,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn(
+                "host guidance source contains a symlinked path component",
+                result.stderr,
+            )
+            self.assertNotIn("must-not-be-packaged", result.stderr)
+            self.assertTrue(source.is_symlink())
 
     def test_sync_detects_and_repairs_fifo_without_blocking(self) -> None:
         with tempfile.TemporaryDirectory(prefix="atlas fifo sync repo ") as temp_dir:

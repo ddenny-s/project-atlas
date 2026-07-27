@@ -15,6 +15,7 @@ import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from tests.support import ATLAS_SCRIPT, FIXTURES_ROOT, load_json, run_atlas, run_command
 
@@ -24,8 +25,1493 @@ TRACE_HEADER = (
     "atlas_refs\tnotes\n"
 )
 
+QUESTION_HEADER = (
+    "| Question ID | Batch ID | Topic | Question | Option A | Option B | Option C | "
+    "Option D | Selected | Free-form note | Answer state | Map effect | Provenance | "
+    "Answered at |"
+)
+QUESTION_SEPARATOR = "| " + " | ".join(["---"] * 14) + " |"
+BATCH_HEADER = (
+    "| Batch ID | Sequence | Question IDs | Remaining material gaps | Decision | "
+    "Decision provenance | Status |"
+)
+BATCH_SEPARATOR = "| " + " | ".join(["---"] * 7) + " |"
+ECONOMICS_HEADER = (
+    "| Run ID | Block ID | Entry | Block | Unit | Min | Typical | Max | Basis | "
+    "Model tier and effort | Input | Output | Reasoning | Total | Telemetry | "
+    "Variance vs typical | Recorded at | Status |"
+)
+ECONOMICS_SEPARATOR = "| " + " | ".join(["---"] * 18) + " |"
+FUTURE_TASKS_HEADER = (
+    "| Task ID | Claim kind | Priority | Outcome | Basis | Affected areas | Scope | "
+    "Non-goals | Acceptance criteria | Dependencies and unknowns | Risks | "
+    "Verification | Status |"
+)
+FUTURE_TASKS_SEPARATOR = "| " + " | ".join(["---"] * 13) + " |"
+
+
+def alignment_section(
+    section: str,
+    phase: str,
+    question_count: int,
+    *,
+    stop_decision: str = "STOP_STABLE",
+) -> str:
+    question_rows: list[str] = []
+    batches: list[list[str]] = []
+    for index in range(question_count):
+        batch_index = index // 3 + 1
+        while len(batches) < batch_index:
+            batches.append([])
+        question_id = f"Q-{phase}-{index + 1}"
+        batch_id = f"B-{phase}-{batch_index}"
+        batches[batch_index - 1].append(question_id)
+        question_rows.append(
+            f"| {question_id} | {batch_id} | Direction | "
+            f"Choose direction {index + 1} for the target map | "
+            "Keep current contour | Narrow the contour | Replace the contour | "
+            "Другое — напишу сам | A | - | ANSWERED | "
+            f"TARGET: direction {index + 1} | USER_INPUT:{question_id} | "
+            "2026-07-22T10:00:00Z |"
+        )
+    batch_rows: list[str] = []
+    for index, question_ids in enumerate(batches, start=1):
+        final = index == len(batches)
+        decision = stop_decision if final else "CONTINUE"
+        gaps = "None" if decision == "STOP_STABLE" else f"UNKNOWN:gap-{phase.lower()}-{index}"
+        if decision == "STOP_USER":
+            provenance = f"USER_INPUT:stop-{phase.lower()}-{index}"
+        elif decision == "STOP_UNAVAILABLE":
+            provenance = f"UNAVAILABLE:stop-{phase.lower()}-{index}"
+        elif decision == "STOP_STABLE":
+            provenance = "PROTOCOL:SEMANTIC_STOP"
+        else:
+            provenance = f"USER_INPUT:continue-{phase.lower()}-{index}"
+        batch_rows.append(
+            f"| B-{phase}-{index} | {index} | {';'.join(question_ids)} | {gaps} | "
+            f"{decision} | {provenance} | COMPLETE |"
+        )
+    return (
+        f"## {section}\n\n"
+        f"{QUESTION_HEADER}\n{QUESTION_SEPARATOR}\n"
+        + "\n".join(question_rows)
+        + "\n\n"
+        f"{BATCH_HEADER}\n{BATCH_SEPARATOR}\n"
+        + "\n".join(batch_rows)
+        + "\n"
+    )
+
+
+def run_economics_section(*, measured_total: int = 1200, variance: int = 200) -> str:
+    return (
+        "## Run Economics\n\n"
+        f"{ECONOMICS_HEADER}\n{ECONOMICS_SEPARATOR}\n"
+        "| RUN-1 | BLOCK-1 | PRE | Inventory and scope | MODEL_TOKENS | 800 | 1000 | "
+        "1600 | Safe inventory size and declared depth | standard effort | UNMEASURED | "
+        "UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | "
+        "2026-07-22T09:00:00Z | MODELLED |\n"
+        "| RUN-1 | BLOCK-1 | POST | Inventory and scope | MODEL_TOKENS | UNMEASURED | "
+        "UNMEASURED | UNMEASURED | PRE:BLOCK-1 | standard effort | 500 | 400 | 300 | "
+        f"{measured_total} | HOST:run-1-block-1 | {variance:+d} | "
+        "2026-07-22T11:00:00Z | MEASURED |\n"
+    )
+
+
+def future_tasks_section(
+    *,
+    answer_ref: str = "USER_INPUT:Q-START-1",
+    status: str = "READY",
+) -> str:
+    basis = "; ".join(
+        part
+        for part in (
+            answer_ref,
+            "src/main.py:L1",
+            "MAP:MIGRATION_PLAN.md#sequence",
+        )
+        if part
+    )
+    dependencies = (
+        "UNKNOWN:task-1-blocker Owner decision is still required"
+        if status == "BLOCKED"
+        else "None"
+    )
+    return (
+        "## Future Tasks\n\n"
+        f"{FUTURE_TASKS_HEADER}\n{FUTURE_TASKS_SEPARATOR}\n"
+        "| TASK-1 | TARGET | P1 | Preserve the selected target direction | "
+        f"{basis} | "
+        "src | Bounded target contour | Production rollout | "
+        f"The target contour is mapped and validated | {dependencies} | "
+        "Drift from current runtime | Run the focused contract tests | "
+        f"{status} |\n"
+    )
+
 
 class AtlasSecurityRegressionTests(unittest.TestCase):
+    def test_alignment_question_count_is_semantically_unbounded(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        for count in (3, 11):
+            with self.subTest(count=count):
+                _questions, _batches, errors = atlas_module.validate_alignment_section(
+                    "PROJECT_ATLAS.md",
+                    alignment_section("Start Alignment", "START", count),
+                    "Start Alignment",
+                    draft=False,
+                )
+                self.assertEqual(errors, [])
+
+    def test_alignment_rejects_fabricated_or_incompatible_answers(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        valid = alignment_section("Start Alignment", "START", 3)
+        mutations = (
+            (
+                "Другое — напишу сам | A | - | ANSWERED",
+                "Keep current contour | A | - | ANSWERED",
+                "exact Option D",
+            ),
+            (
+                "| A | - | ANSWERED | TARGET: direction 1 |",
+                "| D | - | ANSWERED | TARGET: direction 1 |",
+                "Free-form note",
+            ),
+            (
+                "| A | - | ANSWERED | TARGET: direction 1 |",
+                "| A | - | SKIPPED | TARGET: fabricated |",
+                "SKIPPED",
+            ),
+            (
+                "| A | - | ANSWERED | TARGET: direction 1 |",
+                "| A | - | ANSWERED | - |",
+                "Map effect",
+            ),
+            (
+                "USER_INPUT:Q-START-1 | 2026-07-22T10:00:00Z",
+                "USER_INPUT:person@example.com | 2099-07-22T10:00:00Z",
+                "Provenance",
+            ),
+            (
+                "USER_INPUT:Q-START-1 | 2026-07-22T10:00:00Z",
+                "USER_INPUT:Q-START-999 | 2026-07-22T10:00:00Z",
+                "stable Question ID",
+            ),
+        )
+        for before, after, diagnostic in mutations:
+            with self.subTest(diagnostic=diagnostic):
+                _questions, _batches, errors = atlas_module.validate_alignment_section(
+                    "PROJECT_ATLAS.md",
+                    valid.replace(before, after, 1),
+                    "Start Alignment",
+                    draft=False,
+                )
+                self.assertTrue(errors)
+                self.assertTrue(
+                    any(diagnostic.casefold() in error.casefold() for error in errors),
+                    errors,
+                )
+
+    def test_alignment_enforces_batch_chronology_and_stop_semantics(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        for stop_decision in ("STOP_USER", "STOP_UNAVAILABLE"):
+            with self.subTest(valid_stop=stop_decision):
+                _questions, _batches, observed = atlas_module.validate_alignment_section(
+                    "LIVE_HANDOFF.md",
+                    alignment_section(
+                        "Finish Alignment",
+                        "FINISH",
+                        4,
+                        stop_decision=stop_decision,
+                    ),
+                    "Finish Alignment",
+                    draft=False,
+                )
+                self.assertEqual(observed, [])
+        valid = alignment_section("Finish Alignment", "FINISH", 4)
+        mutations = (
+            ("| B-FINISH-2 | 2 |", "| B-FINISH-2 | 4 |", "contiguous"),
+            (
+                "| STOP_STABLE | PROTOCOL:SEMANTIC_STOP |",
+                "| CONTINUE | PROTOCOL:SEMANTIC_STOP |",
+                "STOP",
+            ),
+            ("| None | STOP_STABLE |", "| UNKNOWN:still-open | STOP_STABLE |", "None"),
+            (
+                "| UNKNOWN:gap-finish-1 | CONTINUE |",
+                "| None | STOP_USER |",
+                "named",
+            ),
+        )
+        for before, after, diagnostic in mutations:
+            with self.subTest(diagnostic=diagnostic):
+                _questions, _batches, errors = atlas_module.validate_alignment_section(
+                    "LIVE_HANDOFF.md",
+                    valid.replace(before, after, 1),
+                    "Finish Alignment",
+                    draft=False,
+                )
+                self.assertTrue(errors)
+                self.assertTrue(
+                    any(diagnostic.casefold() in error.casefold() for error in errors),
+                    errors,
+                )
+
+    def test_unknown_references_require_standalone_bounded_tokens(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        canonical_alignment = alignment_section(
+            "Finish Alignment",
+            "FINISH",
+            1,
+            stop_decision="STOP_UNAVAILABLE",
+        )
+        canonical_token = "UNKNOWN:gap-finish-1"
+        valid_tokens = (
+            canonical_token,
+            f"({canonical_token}),",
+            "UNKNOWN:" + ("a" * 128),
+        )
+        invalid_tokens = (
+            "NOTUNKNOWN:gap-finish-1",
+            "XUNKNOWN:gap-finish-1",
+            "éUNKNOWN:gap-finish-1",
+            "中UNKNOWN:gap-finish-1",
+            "９UNKNOWN:gap-finish-1",
+            "UNKNOWN:gap-finish-1é",
+            "UNKNOWN:gap-finish-1中",
+            "UNKNOWN:gap-finish-1９",
+            "UNKNOWN:gap-finish-1\u0301",
+            "\u200dUNKNOWN:gap-finish-1",
+            "UNKNOWN:gap-finish-1\u200d",
+            "UNKNOWN:" + ("a" * 129),
+            "UNKNOWN:" + ("a" * 128) + ".suffix",
+        )
+
+        for token in valid_tokens:
+            with self.subTest(surface="alignment", valid_token=token):
+                _questions, _batches, errors = atlas_module.validate_alignment_section(
+                    "LIVE_HANDOFF.md",
+                    canonical_alignment.replace(canonical_token, token, 1),
+                    "Finish Alignment",
+                    draft=False,
+                )
+                self.assertEqual(errors, [])
+        for token in invalid_tokens:
+            with self.subTest(surface="alignment", invalid_token=token):
+                _questions, _batches, errors = atlas_module.validate_alignment_section(
+                    "LIVE_HANDOFF.md",
+                    canonical_alignment.replace(canonical_token, token, 1),
+                    "Finish Alignment",
+                    draft=False,
+                )
+                self.assertTrue(
+                    any("named UNKNOWN" in error for error in errors),
+                    errors,
+                )
+
+        continue_alignment = alignment_section(
+            "Finish Alignment",
+            "FINISH",
+            4,
+            stop_decision="STOP_UNAVAILABLE",
+        )
+        for token in valid_tokens:
+            with self.subTest(surface="alignment CONTINUE", valid_token=token):
+                _questions, _batches, errors = atlas_module.validate_alignment_section(
+                    "LIVE_HANDOFF.md",
+                    continue_alignment.replace(canonical_token, token, 1),
+                    "Finish Alignment",
+                    draft=False,
+                )
+                self.assertEqual(errors, [])
+        for token in (*invalid_tokens, "Owner decision still needs evidence"):
+            with self.subTest(surface="alignment CONTINUE", invalid_token=token):
+                _questions, _batches, errors = atlas_module.validate_alignment_section(
+                    "LIVE_HANDOFF.md",
+                    continue_alignment.replace(canonical_token, token, 1),
+                    "Finish Alignment",
+                    draft=False,
+                )
+                self.assertTrue(
+                    any(
+                        "CONTINUE requires a named UNKNOWN" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+        with tempfile.TemporaryDirectory(prefix="atlas bounded unknown tokens ") as temp_dir:
+            project = Path(temp_dir)
+            (project / "src").mkdir()
+            (project / "src" / "main.py").write_text("pass\n", encoding="utf-8")
+            inventory = atlas_module.build_safe_inventory(project)
+            canonical_task = future_tasks_section(answer_ref="", status="BLOCKED")
+            canonical_task_token = "UNKNOWN:task-1-blocker"
+
+            def validate_task(token: str) -> list[str]:
+                task = canonical_task.replace(canonical_task_token, token, 1)
+                _rows, errors = atlas_module.validate_future_tasks_section(
+                    "MIGRATION_PLAN.md",
+                    task,
+                    inventory,
+                    active_answers=set(),
+                    draft=False,
+                    mode="STANDARD",
+                    artifact_texts={
+                        "MIGRATION_PLAN.md": (
+                            "## Sequence\n\n"
+                            "The visible migration sequence is grounded in current evidence.\n\n"
+                            + task
+                        )
+                    },
+                )
+                return errors
+
+            for token in valid_tokens:
+                with self.subTest(surface="future task", valid_token=token):
+                    self.assertEqual(validate_task(token), [])
+            for token in invalid_tokens:
+                with self.subTest(surface="future task", invalid_token=token):
+                    errors = validate_task(token)
+                    self.assertTrue(
+                        any("BLOCKED requires a named UNKNOWN" in error for error in errors),
+                        errors,
+                    )
+
+        mixed_invalid_tokens = (
+            "UNKNOWN:",
+            "UNKNOWN:" + ("b" * 129),
+            "UNKNOWN:otheré",
+        )
+        decision_sections = (
+            (
+                "STOP_USER",
+                alignment_section(
+                    "Finish Alignment",
+                    "FINISH",
+                    1,
+                    stop_decision="STOP_USER",
+                ),
+            ),
+            (
+                "STOP_UNAVAILABLE",
+                alignment_section(
+                    "Finish Alignment",
+                    "FINISH",
+                    1,
+                    stop_decision="STOP_UNAVAILABLE",
+                ),
+            ),
+            (
+                "CONTINUE",
+                alignment_section(
+                    "Finish Alignment",
+                    "FINISH",
+                    4,
+                    stop_decision="STOP_UNAVAILABLE",
+                ),
+            ),
+        )
+        for decision, section in decision_sections:
+            for malformed in mixed_invalid_tokens:
+                with self.subTest(
+                    surface="alignment mixed UNKNOWN",
+                    decision=decision,
+                    malformed=malformed,
+                ):
+                    mixed = section.replace(
+                        canonical_token,
+                        canonical_token + "; " + malformed,
+                        1,
+                    )
+                    _questions, _batches, errors = (
+                        atlas_module.validate_alignment_section(
+                            "LIVE_HANDOFF.md",
+                            mixed,
+                            "Finish Alignment",
+                            draft=False,
+                        )
+                    )
+                    self.assertTrue(
+                        any("malformed UNKNOWN" in error for error in errors),
+                        errors,
+                    )
+
+        for malformed in mixed_invalid_tokens:
+            with self.subTest(
+                surface="future task mixed UNKNOWN",
+                malformed=malformed,
+            ):
+                errors = validate_task(
+                    canonical_task_token + "; " + malformed
+                )
+                self.assertTrue(
+                    any("malformed UNKNOWN" in error for error in errors),
+                    errors,
+                )
+
+    def test_run_economics_requires_real_pre_post_pair_and_exact_variance(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        rows, errors = atlas_module.validate_run_economics_section(
+            "LIVE_HANDOFF.md",
+            run_economics_section(),
+            draft=False,
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(len(rows), 2)
+        unmeasured = run_economics_section().replace(
+            "| standard effort | 500 | 400 | 300 | 1200 | HOST:run-1-block-1 | +200 | "
+            "2026-07-22T11:00:00Z | MEASURED |",
+            "| UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | UNMEASURED | "
+            "UNMEASURED | UNMEASURED | 2026-07-22T11:00:00Z | UNMEASURED |",
+        )
+        _rows, errors = atlas_module.validate_run_economics_section(
+            "LIVE_HANDOFF.md",
+            unmeasured,
+            draft=False,
+        )
+        self.assertEqual(errors, [])
+
+        for text, diagnostic in (
+            (run_economics_section(variance=201), "Variance"),
+            (
+                run_economics_section().replace(
+                    "2026-07-22T11:00:00Z", "2026-07-22T08:00:00Z"
+                ),
+                "chronologically",
+            ),
+            (
+                run_economics_section().replace(
+                    "| 500 | 400 | 300 | 1200 |",
+                    "| 500 | 400 | UNMEASURED | UNMEASURED |",
+                ),
+                "all UNMEASURED",
+            ),
+        ):
+            with self.subTest(diagnostic=diagnostic):
+                _rows, observed = atlas_module.validate_run_economics_section(
+                    "LIVE_HANDOFF.md",
+                    text,
+                    draft=False,
+                )
+                self.assertTrue(
+                    any(diagnostic.casefold() in error.casefold() for error in observed),
+                    observed,
+                )
+
+    def test_run_economics_rejects_orphan_pre_and_token_quota_conversion(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        complete = run_economics_section()
+        orphan_pre = complete.rsplit("\n", 2)[0] + "\n"
+        _rows, errors = atlas_module.validate_run_economics_section(
+            "LIVE_HANDOFF.md",
+            orphan_pre,
+            draft=False,
+        )
+        self.assertTrue(
+            any("pre has no matching post" in error.casefold() for error in errors),
+            errors,
+        )
+
+        conversion_claims = (
+            "1200 tokens are 4% of weekly quota",
+            "1200 tokens constitute 4 percent of weekly quota",
+            "weekly quota remaining is 4% for 1200 tokens",
+            "1200 токенов — это 4% недельного лимита",
+        )
+        for field in ("Block", "Basis", "Model tier and effort", "Telemetry"):
+            for conversion_claim in conversion_claims:
+                with self.subTest(field=field, conversion_claim=conversion_claim):
+                    if field == "Block":
+                        converted = complete.replace(
+                            "Inventory and scope",
+                            conversion_claim,
+                        )
+                    elif field == "Basis":
+                        converted = complete.replace(
+                            "Safe inventory size and declared depth",
+                            conversion_claim,
+                            1,
+                        )
+                    elif field == "Model tier and effort":
+                        converted = complete.replace(
+                            "standard effort",
+                            conversion_claim,
+                            1,
+                        )
+                    else:
+                        converted = complete.replace(
+                            "HOST:run-1-block-1",
+                            conversion_claim,
+                            1,
+                        )
+                    _rows, errors = atlas_module.validate_run_economics_section(
+                        "LIVE_HANDOFF.md",
+                        converted,
+                        draft=False,
+                    )
+                    self.assertTrue(
+                        any(
+                            f" {field} must not infer or convert a quota percentage "
+                            "from model tokens"
+                            in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+
+        exact_host_signal = complete.replace(
+            "HOST:run-1-block-1",
+            "HOST_EXACT_WEEKLY_REMAINING:42%",
+        )
+        _rows, errors = atlas_module.validate_run_economics_section(
+            "LIVE_HANDOFF.md",
+            exact_host_signal,
+            draft=False,
+        )
+        self.assertEqual(errors, [])
+
+    def test_run_economics_rejects_token_quota_split_across_narrative_fields(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        split_claim = run_economics_section().replace(
+            "standard effort",
+            "standard effort for 1200 tokens",
+            1,
+        ).replace(
+            "Safe inventory size and declared depth",
+            "Host reports 4% weekly quota remaining",
+            1,
+        )
+        _rows, errors = atlas_module.validate_run_economics_section(
+            "LIVE_HANDOFF.md",
+            split_claim,
+            draft=False,
+        )
+        self.assertTrue(
+            any(
+                "narrative fields" in error.casefold()
+                and "quota" in error.casefold()
+                for error in errors
+            ),
+            errors,
+        )
+        self.assertEqual(len(errors), 1, errors)
+
+    def test_future_tasks_require_non_dangling_answer_and_safe_basis(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(prefix="atlas future task basis ") as temp_dir:
+            project = Path(temp_dir)
+            (project / "src").mkdir()
+            (project / "src" / "main.py").write_text("pass\n", encoding="utf-8")
+            inventory = atlas_module.build_safe_inventory(project)
+            active_answers = {"USER_INPUT:Q-START-1"}
+            valid_task = future_tasks_section()
+            artifact_texts = {
+                "MIGRATION_PLAN.md": (
+                    "# Migration Plan\n\n## Sequence\n\n"
+                    "The visible migration sequence is grounded in current evidence.\n\n"
+                    + valid_task
+                )
+            }
+
+            rows, errors = atlas_module.validate_future_tasks_section(
+                "MIGRATION_PLAN.md",
+                valid_task,
+                inventory,
+                active_answers=active_answers,
+                draft=False,
+                mode="STANDARD",
+                artifact_texts=artifact_texts,
+            )
+            self.assertEqual(errors, [])
+            self.assertEqual(len(rows), 1)
+
+            for text, diagnostic in (
+                (
+                    future_tasks_section(answer_ref="USER_INPUT:missing-answer"),
+                    "dangling",
+                ),
+                (
+                    future_tasks_section().replace(
+                        "src/main.py:L1; MAP:MIGRATION_PLAN.md#sequence",
+                        "missing/main.py:L1",
+                    ),
+                    "safe project-relative source or map basis",
+                ),
+                (
+                    future_tasks_section().replace(
+                        "MAP:MIGRATION_PLAN.md#sequence",
+                        "MAP:MIGRATION_PLAN.md#missing-anchor",
+                    ),
+                    "visible map anchor",
+                ),
+                (
+                    future_tasks_section().replace(
+                        "| src | Bounded target contour |",
+                        "| - | Bounded target contour |",
+                    ),
+                    "Affected areas",
+                ),
+                (
+                    future_tasks_section().replace("| READY |", "| BLOCKED |"),
+                    "named UNKNOWN",
+                ),
+            ):
+                with self.subTest(diagnostic=diagnostic):
+                    _rows, observed = atlas_module.validate_future_tasks_section(
+                        "MIGRATION_PLAN.md",
+                        text,
+                        inventory,
+                        active_answers=active_answers,
+                        draft=False,
+                        mode="STANDARD",
+                        artifact_texts={
+                            "MIGRATION_PLAN.md": (
+                                "# Migration Plan\n\n## Sequence\n\n"
+                                "The visible migration sequence is grounded in current evidence.\n\n"
+                                + text
+                            )
+                        },
+                    )
+                    self.assertTrue(
+                        any(diagnostic.casefold() in error.casefold() for error in observed),
+                        observed,
+                    )
+
+            mandatory_field_mutations = (
+                ("Preserve the selected target direction", "-", "Outcome"),
+                (
+                    "USER_INPUT:Q-START-1; src/main.py:L1; "
+                    "MAP:MIGRATION_PLAN.md#sequence",
+                    "-",
+                    "Basis",
+                ),
+                (
+                    "| src | Bounded target contour |",
+                    "| - | Bounded target contour |",
+                    "Affected areas",
+                ),
+                ("Bounded target contour", "-", "Scope"),
+                ("Production rollout", "-", "Non-goals"),
+                (
+                    "The target contour is mapped and validated",
+                    "-",
+                    "Acceptance criteria",
+                ),
+                ("None", "-", "Dependencies and unknowns"),
+                ("Drift from current runtime", "-", "Risks"),
+                ("Run the focused contract tests", "-", "Verification"),
+            )
+            for before, after, field in mandatory_field_mutations:
+                with self.subTest(mandatory_field=field):
+                    invalid = valid_task.replace(before, after, 1)
+                    _rows, observed = atlas_module.validate_future_tasks_section(
+                        "MIGRATION_PLAN.md",
+                        invalid,
+                        inventory,
+                        active_answers=active_answers,
+                        draft=False,
+                        mode="STANDARD",
+                        artifact_texts={
+                            "MIGRATION_PLAN.md": (
+                                "# Migration Plan\n\n## Sequence\n\n"
+                                "The visible migration sequence is grounded in current evidence.\n\n"
+                                + invalid
+                            )
+                        },
+                    )
+                    self.assertTrue(
+                        any(field.casefold() in error.casefold() for error in observed),
+                        observed,
+                    )
+
+    def test_future_tasks_apply_active_gates_to_ready_and_blocked(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(prefix="atlas active future task gates ") as temp_dir:
+            project = Path(temp_dir)
+            (project / "src").mkdir()
+            (project / "src" / "main.py").write_text("pass\n", encoding="utf-8")
+            inventory = atlas_module.build_safe_inventory(project)
+            active_answers = {"USER_INPUT:Q-START-1"}
+            mandatory_field_mutations = (
+                ("Preserve the selected target direction", "-", "Outcome"),
+                (
+                    "USER_INPUT:Q-START-1; src/main.py:L1; "
+                    "MAP:MIGRATION_PLAN.md#sequence",
+                    "-",
+                    "Basis",
+                ),
+                ("| src | Bounded target contour |", "| - | Bounded target contour |", "Affected areas"),
+                ("Bounded target contour", "-", "Scope"),
+                ("Production rollout", "-", "Non-goals"),
+                (
+                    "The target contour is mapped and validated",
+                    "-",
+                    "Acceptance criteria",
+                ),
+                ("Drift from current runtime", "-", "Risks"),
+                ("Run the focused contract tests", "-", "Verification"),
+            )
+
+            def artifact_texts(task: str) -> dict[str, str]:
+                return {
+                    "MIGRATION_PLAN.md": (
+                        "# Migration Plan\n\n## Sequence\n\n"
+                        "The visible migration sequence is grounded in current evidence.\n\n"
+                        + task
+                    )
+                }
+
+            for status in ("READY", "BLOCKED"):
+                valid_task = future_tasks_section(status=status)
+                with self.subTest(status=status, case="valid"):
+                    _rows, errors = atlas_module.validate_future_tasks_section(
+                        "MIGRATION_PLAN.md",
+                        valid_task,
+                        inventory,
+                        active_answers=active_answers,
+                        draft=False,
+                        mode="STANDARD",
+                        artifact_texts=artifact_texts(valid_task),
+                    )
+                    self.assertEqual(errors, [])
+
+                for before, after, field in mandatory_field_mutations:
+                    with self.subTest(status=status, mandatory_field=field):
+                        invalid = valid_task.replace(before, after, 1)
+                        _rows, errors = atlas_module.validate_future_tasks_section(
+                            "MIGRATION_PLAN.md",
+                            invalid,
+                            inventory,
+                            active_answers=active_answers,
+                            draft=False,
+                            mode="STANDARD",
+                            artifact_texts=artifact_texts(invalid),
+                        )
+                        self.assertTrue(
+                            any(
+                                f"{status} {field}".casefold() in error.casefold()
+                                for error in errors
+                            ),
+                            errors,
+                        )
+
+                for draft_marker in (
+                    "TO" + "DO.",
+                    "TO-" + "DO",
+                    "TO " + "DO",
+                    "[TO" + "DO]",
+                    "T.B.D.",
+                    "T B D",
+                    "T/B/D",
+                    "place" + "holder.",
+                    "PLACE " + "HOLDER",
+                    "D R A F T",
+                    "D/R/A/F/T",
+                    "N / A",
+                    "U N K N O W N",
+                    "T:B:D",
+                    "T,B,D",
+                    "T;B;D",
+                    "TO:DO",
+                    "D:R:A:F:T",
+                    "/T" + "BD/",
+                    "//TO" + "DO//",
+                    "«DRA" + "FT»",
+                    "【PLACE" + "HOLDER】",
+                    "/T/B/D/",
+                    "🔹T" + "BD🔹",
+                    "\ufe0fTO" + "DO\ufe0f",
+                    "TO\ufe0f" + "DO",
+                    "\u0301T" + "BD\u0301",
+                    "D\u0307RA" + "FT",
+                    "T\u200d" + "BD",
+                    "PLACE\u2060" + "HOLDER",
+                    "DRA\u200e" + "FT",
+                    "\u2066PLACE" + "HOLDER\u2069",
+                ):
+                    with self.subTest(
+                        status=status,
+                        mandatory_field="Risks",
+                        draft_marker=draft_marker,
+                    ):
+                        invalid = valid_task.replace(
+                            "Drift from current runtime",
+                            draft_marker,
+                            1,
+                        )
+                        _rows, errors = atlas_module.validate_future_tasks_section(
+                            "MIGRATION_PLAN.md",
+                            invalid,
+                            inventory,
+                            active_answers=active_answers,
+                            draft=False,
+                            mode="STANDARD",
+                            artifact_texts=artifact_texts(invalid),
+                        )
+                        self.assertTrue(
+                            any(
+                                f"{status} Risks".casefold() in error.casefold()
+                                for error in errors
+                            ),
+                            errors,
+                        )
+
+                historical_marker = valid_task.replace(
+                    "Drift from current runtime",
+                    "The historical dra" + "ft plan is retained for audit evidence",
+                    1,
+                )
+                with self.subTest(status=status, case="marker in substantive prose"):
+                    _rows, errors = atlas_module.validate_future_tasks_section(
+                        "MIGRATION_PLAN.md",
+                        historical_marker,
+                        inventory,
+                        active_answers=active_answers,
+                        draft=False,
+                        mode="STANDARD",
+                        artifact_texts=artifact_texts(historical_marker),
+                    )
+                    self.assertEqual(errors, [])
+
+                without_grounding = valid_task.replace(
+                    "src/main.py:L1; MAP:MIGRATION_PLAN.md#sequence",
+                    "no grounded project evidence",
+                )
+                with self.subTest(status=status, case="safe basis"):
+                    _rows, errors = atlas_module.validate_future_tasks_section(
+                        "MIGRATION_PLAN.md",
+                        without_grounding,
+                        inventory,
+                        active_answers=active_answers,
+                        draft=False,
+                        mode="STANDARD",
+                        artifact_texts=artifact_texts(without_grounding),
+                    )
+                    self.assertTrue(
+                        any(
+                            f"{status} Basis requires a safe project-relative source "
+                            "or map basis"
+                            in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+
+                if status == "READY":
+                    with self.subTest(status=status, case="active answer provenance"):
+                        _rows, errors = atlas_module.validate_future_tasks_section(
+                            "MIGRATION_PLAN.md",
+                            valid_task,
+                            inventory,
+                            active_answers=set(),
+                            draft=False,
+                            mode="STANDARD",
+                            artifact_texts=artifact_texts(valid_task),
+                        )
+                        self.assertTrue(
+                            any(
+                                "READY Basis requires active answer provenance"
+                                in error
+                                for error in errors
+                            ),
+                            errors,
+                        )
+
+    def test_future_task_map_basis_requires_substantive_non_interaction_body(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(prefix="atlas substantive map basis ") as temp_dir:
+            project = Path(temp_dir)
+            inventory = atlas_module.build_safe_inventory(project)
+            active_answers = {"USER_INPUT:Q-START-1"}
+            map_only_task = future_tasks_section().replace("src/main.py:L1; ", "")
+
+            def validate(map_text: str, task: str = map_only_task) -> list[str]:
+                _rows, errors = atlas_module.validate_future_tasks_section(
+                    "MIGRATION_PLAN.md",
+                    task,
+                    inventory,
+                    active_answers=active_answers,
+                    draft=False,
+                    mode="STANDARD",
+                    artifact_texts={"MIGRATION_PLAN.md": map_text + "\n\n" + task},
+                )
+                return errors
+
+            valid_map = (
+                "# Migration Plan\n\n## Sequence\n\n"
+                "The visible migration sequence is grounded in current evidence."
+            )
+            self.assertEqual(validate(valid_map), [])
+            populated_table_map = (
+                "# Migration Plan\n\n## Sequence\n\n"
+                "| File | Meaning |\n"
+                "|---|---|\n"
+                "| src/main.py | Current entry point from the inspected snapshot |\n"
+            )
+            self.assertEqual(validate(populated_table_map), [])
+            linked_prose_map = (
+                "# Migration Plan\n\n## Sequence\n\n"
+                "The inspected entry point is documented in "
+                "[the repository guide](README.md)."
+            )
+            self.assertEqual(validate(linked_prose_map), [])
+            for container_setext in (
+                "# Migration Plan\n\n> Sequence\n---\n\n"
+                "Real evidence belongs to a different container.",
+                "# Migration Plan\n\n- Sequence\n---\n\n"
+                "Real evidence belongs to a different container.",
+                "# Migration Plan\n\n- Parent\n\n  ## Sequence\n\n"
+                "  Real evidence remains inside the bullet item.",
+                "# Migration Plan\n\n1. Parent\n\n   ## Sequence\n\n"
+                "   Real evidence remains inside the ordered item.",
+                "# Migration Plan\n\n- Parent\n\n  Sequence\n  --------\n\n"
+                "  Real evidence remains inside the bullet item.",
+                "# Migration Plan\n\n1. Parent\n\n   Sequence\n   ========\n\n"
+                "   Real evidence remains inside the ordered item.",
+                "# Migration Plan\n\n> Prefix\nSequence\n--------\n\n"
+                "Real evidence remains a lazy blockquote continuation.",
+            ):
+                with self.subTest(container_setext=container_setext):
+                    errors = validate(container_setext)
+                    self.assertTrue(
+                        any(
+                            "Basis requires a safe project-relative source or map basis"
+                            in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+
+            nested_heading_cases = (
+                "- Parent\n\n  ## Sequence\n",
+                "1. Parent\n\n   ## Sequence\n",
+                "- Parent\n\n  Sequence\n  --------\n",
+                "1. Parent\n\n   Sequence\n   ========\n",
+                "> Prefix\nSequence\n--------\n",
+            )
+            for nested_heading in nested_heading_cases:
+                with self.subTest(nested_heading=nested_heading):
+                    _rendered, headings = (
+                        atlas_module.top_level_markdown_section_headings(
+                            nested_heading
+                        )
+                    )
+                    self.assertEqual(headings, ())
+
+            for indentation in range(4):
+                prefix = " " * indentation
+                top_level = (
+                    f"{prefix}# Top H1\n\n"
+                    f"{prefix}## Top H2\n\n"
+                    f"{prefix}Setext H1\n{prefix}==========\n\n"
+                    f"{prefix}Setext H2\n{prefix}----------\n"
+                )
+                with self.subTest(top_level_indentation=indentation):
+                    _rendered, headings = (
+                        atlas_module.top_level_markdown_section_headings(
+                            top_level
+                        )
+                    )
+                    self.assertEqual(
+                        tuple((level, name) for _start, _end, level, name in headings),
+                        (
+                            (1, "Top H1"),
+                            (2, "Top H2"),
+                            (1, "Setext H1"),
+                            (2, "Setext H2"),
+                        ),
+                    )
+
+            _rendered, headings = atlas_module.top_level_markdown_section_headings(
+                "> Prefix\nlazy continuation\n## Real top level\n"
+            )
+            self.assertEqual(
+                tuple((level, name) for _start, _end, level, name in headings),
+                ((2, "Real top level"),),
+            )
+            for prefix in ("é", "中", "９", "\u200d"):
+                with self.subTest(map_prefix=prefix):
+                    prefixed_task = map_only_task.replace(
+                        "MAP:MIGRATION_PLAN.md#sequence",
+                        prefix + "MAP:MIGRATION_PLAN.md#sequence",
+                        1,
+                    )
+                    errors = validate(valid_map, prefixed_task)
+                    self.assertTrue(
+                        any(
+                            "Basis requires a safe project-relative source or map basis"
+                            in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+
+            for body in (
+                "",
+                "TO" + "DO",
+                "T" + "BD: document sequence",
+                "place" + "holder content",
+                "| File | Meaning |\n|---|---|",
+                "### Current Evidence",
+                "> ### Current Evidence",
+                "1. ### Current Evidence",
+                "Current Evidence\n----------------",
+                "Current Evidence\n================",
+                "Current Evidence\n----------------\n\n"
+                "Real evidence belongs to the following section.",
+                "# Other\n\nReal evidence belongs to the following section.",
+                "[Current evidence](README.md)",
+                "[Current evidence][guide]\n\n[guide]: README.md",
+                "![Current evidence](assets/evidence.svg)",
+                "<https://example.com/current-evidence>",
+                "https://example.com/current-evidence",
+            ):
+                with self.subTest(body=body):
+                    errors = validate(
+                        "# Migration Plan\n\n## Sequence\n\n" + body
+                    )
+                    self.assertTrue(
+                        any("no visible map anchor" in error.casefold() for error in errors),
+                        errors,
+                    )
+
+            circular_task = map_only_task.replace(
+                "MAP:MIGRATION_PLAN.md#sequence",
+                "MAP:MIGRATION_PLAN.md#future-tasks",
+            )
+            circular_errors = validate("# Migration Plan", circular_task)
+            self.assertTrue(
+                any("no visible map anchor" in error.casefold() for error in circular_errors),
+                circular_errors,
+            )
+
+            decoy_maps = (
+                (
+                    "fenced",
+                    "```markdown\n## Sequence\n\n"
+                    "The decoy sequence looks substantive but is fenced.\n```",
+                ),
+                (
+                    "html",
+                    "<div>\n## Sequence\n\n"
+                    "The decoy sequence looks substantive but is hidden.\n</div>",
+                ),
+            )
+            for label, decoy_map in decoy_maps:
+                with self.subTest(decoy=label):
+                    errors = validate(decoy_map)
+                    self.assertTrue(
+                        any("no visible map anchor" in error.casefold() for error in errors),
+                        errors,
+                    )
+
+            normalized_collision = (
+                "# Migration Plan\n\n## Sequence\n\n"
+                + "TO"
+                + "DO"
+                + "\n\n## sequence\n\n"
+                "The second spelling has substantive current evidence."
+            )
+            collision_errors = validate(normalized_collision)
+            self.assertTrue(
+                any(
+                    "no visible map anchor" in error.casefold()
+                    for error in collision_errors
+                ),
+                collision_errors,
+            )
+
+    def test_inactive_answers_cannot_authorize_active_future_tasks(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(prefix="atlas inactive answer provenance ") as temp_dir:
+            project = Path(temp_dir)
+            (project / "src").mkdir()
+            (project / "src" / "main.py").write_text("pass\n", encoding="utf-8")
+            inventory = atlas_module.build_safe_inventory(project)
+            answered_fragment = (
+                "| A | - | ANSWERED | TARGET: direction 1 | "
+                "USER_INPUT:Q-START-1 | 2026-07-22T10:00:00Z |"
+            )
+            for answer_state in ("SKIPPED", "UNAVAILABLE", "SUPERSEDED"):
+                inactive_fragment = (
+                    f"| - | - | {answer_state} | - | "
+                    "USER_INPUT:Q-START-1 | 2026-07-22T10:00:00Z |"
+                )
+                for task_status in ("READY", "BLOCKED"):
+                    with self.subTest(
+                        answer_state=answer_state,
+                        task_status=task_status,
+                    ):
+                        start = alignment_section(
+                            "Start Alignment", "START", 3
+                        ).replace(answered_fragment, inactive_fragment, 1)
+                        documents = {
+                            "PRODUCT_AND_REQUIREMENTS.md": start,
+                            "LIVE_HANDOFF.md": (
+                                alignment_section(
+                                    "Finish Alignment", "FINISH", 3
+                                )
+                                + "\n"
+                                + run_economics_section()
+                            ),
+                            "MIGRATION_PLAN.md": (
+                                "## Sequence\n\n"
+                                "The visible migration sequence is grounded in current evidence.\n\n"
+                                + future_tasks_section(status=task_status)
+                            ),
+                        }
+                        _registries, errors = (
+                            atlas_module.validate_interaction_documents(
+                                "STANDARD",
+                                documents,
+                                inventory,
+                                draft=False,
+                            )
+                        )
+                        self.assertTrue(
+                            any(
+                                f"{task_status} Basis requires active answer provenance"
+                                in error
+                                for error in errors
+                            ),
+                            errors,
+                        )
+
+    def test_blocked_rejects_malformed_user_input_like_references(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(
+            prefix="atlas malformed blocked user input "
+        ) as temp_dir:
+            project = Path(temp_dir)
+            (project / "src").mkdir()
+            (project / "src" / "main.py").write_text(
+                "pass\n",
+                encoding="utf-8",
+            )
+            inventory = atlas_module.build_safe_inventory(project)
+            canonical = future_tasks_section(answer_ref="", status="BLOCKED")
+            for malformed in (
+                "USER_INPUT:",
+                "USER_INPUT:" + ("a" * 129),
+                "éUSER_INPUT:Q-START-1",
+                "USER_INPUT:Q-START-1é",
+                "\u200dUSER_INPUT:Q-START-1",
+                "USER_INPUT:Q-START-1\u200d",
+            ):
+                with self.subTest(malformed=malformed):
+                    task = canonical.replace(
+                        "src/main.py:L1",
+                        malformed + "; src/main.py:L1",
+                        1,
+                    )
+                    _rows, errors = atlas_module.validate_future_tasks_section(
+                        "MIGRATION_PLAN.md",
+                        task,
+                        inventory,
+                        active_answers=set(),
+                        draft=False,
+                        mode="STANDARD",
+                        artifact_texts={
+                            "MIGRATION_PLAN.md": (
+                                "# Migration Plan\n\n## Sequence\n\n"
+                                "The visible migration sequence is grounded in "
+                                "current evidence.\n\n"
+                                + task
+                            )
+                        },
+                    )
+                    self.assertTrue(
+                        any(
+                            "malformed answer provenance USER_INPUT:<Question ID>"
+                            in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+
+    def test_stop_unavailable_without_active_answers_allows_blocked_not_ready(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(prefix="atlas unavailable blocked fallback ") as temp_dir:
+            project = Path(temp_dir)
+            (project / "src").mkdir()
+            (project / "src" / "main.py").write_text("pass\n", encoding="utf-8")
+            inventory = atlas_module.build_safe_inventory(project)
+
+            def unavailable_alignment(section: str, phase: str) -> str:
+                text = alignment_section(
+                    section,
+                    phase,
+                    3,
+                    stop_decision="STOP_UNAVAILABLE",
+                )
+                for index in range(1, 4):
+                    text = text.replace(
+                        f"| A | - | ANSWERED | TARGET: direction {index} | "
+                        f"USER_INPUT:Q-{phase}-{index} | "
+                        "2026-07-22T10:00:00Z |",
+                        "| - | - | UNAVAILABLE | - | - | - |",
+                        1,
+                    )
+                return text
+
+            common_documents = {
+                "PRODUCT_AND_REQUIREMENTS.md": unavailable_alignment(
+                    "Start Alignment",
+                    "START",
+                ),
+                "LIVE_HANDOFF.md": (
+                    unavailable_alignment("Finish Alignment", "FINISH")
+                    + "\n"
+                    + run_economics_section()
+                ),
+            }
+            for status in ("BLOCKED", "READY"):
+                task = future_tasks_section(answer_ref="", status=status)
+                documents = {
+                    **common_documents,
+                    "MIGRATION_PLAN.md": (
+                        "## Sequence\n\n"
+                        "The visible migration sequence is grounded in current evidence.\n\n"
+                        + task
+                    ),
+                }
+                with self.subTest(status=status):
+                    _registries, errors = atlas_module.validate_interaction_documents(
+                        "STANDARD",
+                        documents,
+                        inventory,
+                        draft=False,
+                    )
+                    if status == "BLOCKED":
+                        self.assertEqual(errors, [])
+                    else:
+                        self.assertTrue(
+                            any(
+                                "READY Basis requires active answer provenance"
+                                in error
+                                for error in errors
+                            ),
+                            errors,
+                        )
+
+    def test_named_interaction_sections_ignore_non_rendered_decoys_and_reject_duplicates(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        visible = alignment_section("Start Alignment", "START", 3)
+        fenced_decoy = (
+            "```markdown\n"
+            + alignment_section("Start Alignment", "DECOY", 3)
+            + "```\n"
+        )
+        html_decoy = (
+            "<div>\n"
+            + alignment_section("Start Alignment", "HTML", 3)
+            + "</div>\n\n"
+        )
+        _questions, _batches, errors = atlas_module.validate_alignment_section(
+            "PROJECT_ATLAS.md",
+            fenced_decoy + html_decoy + visible,
+            "Start Alignment",
+            draft=False,
+        )
+        self.assertEqual(errors, [])
+
+        duplicated = visible + "\n" + visible
+        _questions, _batches, errors = atlas_module.validate_alignment_section(
+            "PROJECT_ATLAS.md",
+            duplicated,
+            "Start Alignment",
+            draft=False,
+        )
+        self.assertTrue(any("exactly one" in error.casefold() for error in errors), errors)
+
+    def test_interaction_tables_do_not_cross_top_level_heading_boundaries(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        boundaries = (
+            ("atx h1", "# Foreign Boundary", None),
+            ("setext h1", "Foreign Boundary\n================", None),
+            ("setext h2", "Foreign Boundary\n----------------", "Foreign Boundary"),
+        )
+        valid = alignment_section("Start Alignment", "START", 3)
+        for label, boundary, expected_second_owner in boundaries:
+            with self.subTest(boundary=label, surface="partial alignment"):
+                crossed = valid.replace(
+                    "\n\n" + BATCH_HEADER,
+                    "\n\n" + boundary + "\n\n" + BATCH_HEADER,
+                    1,
+                )
+                questions, batches, errors = atlas_module.validate_alignment_section(
+                    "PRODUCT_AND_REQUIREMENTS.md",
+                    crossed,
+                    "Start Alignment",
+                    draft=False,
+                )
+                self.assertEqual(len(questions), 3)
+                self.assertEqual(batches, [])
+                self.assertTrue(
+                    any(
+                        "must contain exactly one batch ledger table" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+                owners = tuple(
+                    section
+                    for section, header in atlas_module.visible_interaction_table_headers(
+                        crossed
+                    )
+                    if header
+                    in {
+                        tuple(column.casefold() for column in atlas_module.QUESTION_TABLE_COLUMNS),
+                        tuple(column.casefold() for column in atlas_module.BATCH_LEDGER_COLUMNS),
+                    }
+                )
+                self.assertEqual(
+                    owners,
+                    ("Start Alignment", expected_second_owner),
+                )
+
+        with tempfile.TemporaryDirectory(prefix="atlas crossed interaction sections ") as temp_dir:
+            project = Path(temp_dir)
+            (project / "src").mkdir()
+            (project / "src" / "main.py").write_text("pass\n", encoding="utf-8")
+            inventory = atlas_module.build_safe_inventory(project)
+            base_documents = {
+                "PRODUCT_AND_REQUIREMENTS.md": alignment_section(
+                    "Start Alignment", "START", 3
+                ),
+                "LIVE_HANDOFF.md": (
+                    alignment_section("Finish Alignment", "FINISH", 3)
+                    + "\n"
+                    + run_economics_section()
+                ),
+                "MIGRATION_PLAN.md": (
+                    "## Sequence\n\n"
+                    "The visible migration sequence is grounded in current evidence.\n\n"
+                    + future_tasks_section()
+                ),
+            }
+            surfaces = (
+                ("Start Alignment", "PRODUCT_AND_REQUIREMENTS.md"),
+                ("Finish Alignment", "LIVE_HANDOFF.md"),
+                ("Run Economics", "LIVE_HANDOFF.md"),
+                ("Future Tasks", "MIGRATION_PLAN.md"),
+            )
+            for section_name, filename in surfaces:
+                for label, boundary, _expected_owner in boundaries:
+                    with self.subTest(
+                        surface=section_name,
+                        boundary=label,
+                    ):
+                        documents = dict(base_documents)
+                        documents[filename] = documents[filename].replace(
+                            f"## {section_name}\n\n",
+                            f"## {section_name}\n\n{boundary}\n\n",
+                            1,
+                        )
+                        _registries, errors = (
+                            atlas_module.validate_interaction_documents(
+                                "STANDARD",
+                                documents,
+                                inventory,
+                                draft=False,
+                            )
+                        )
+                        self.assertTrue(
+                            any(
+                                section_name.casefold() in error.casefold()
+                                and "must contain exactly one" in error.casefold()
+                                for error in errors
+                            ),
+                            errors,
+                        )
+                        self.assertTrue(
+                            any(
+                                "misplaced or competing interaction table"
+                                in error.casefold()
+                                for error in errors
+                            ),
+                            errors,
+                        )
+
+    def test_interaction_documents_enforce_mode_placement_and_visible_decoys(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(prefix="atlas interaction placement ") as temp_dir:
+            project = Path(temp_dir)
+            (project / "src").mkdir()
+            (project / "src" / "main.py").write_text("pass\n", encoding="utf-8")
+            inventory = atlas_module.build_safe_inventory(project)
+            documents = {
+                "PRODUCT_AND_REQUIREMENTS.md": alignment_section(
+                    "Start Alignment", "START", 3
+                ),
+                "LIVE_HANDOFF.md": (
+                    alignment_section("Finish Alignment", "FINISH", 3)
+                    + "\n"
+                    + run_economics_section()
+                ),
+                "MIGRATION_PLAN.md": (
+                    "## Sequence\n\n"
+                    "The visible migration sequence is grounded in current evidence.\n\n"
+                    + future_tasks_section()
+                ),
+            }
+            _registries, errors = atlas_module.validate_interaction_documents(
+                "STANDARD",
+                documents,
+                inventory,
+                draft=False,
+            )
+            self.assertEqual(errors, [])
+
+            visible_decoy = (
+                "\n## Notes\n\n"
+                f"{FUTURE_TASKS_HEADER}\n{FUTURE_TASKS_SEPARATOR}\n"
+            )
+            documents["LIVE_HANDOFF.md"] += visible_decoy
+            _registries, errors = atlas_module.validate_interaction_documents(
+                "STANDARD",
+                documents,
+                inventory,
+                draft=False,
+            )
+            self.assertTrue(
+                any("competing interaction table" in error.casefold() for error in errors),
+                errors,
+            )
+
+    def test_interaction_table_row_ceiling_is_enforced(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        row = (
+            "| Q-START-X | B-START-1 | Direction | Choose a target direction | A | B | C | "
+            "Другое — напишу сам | A | - | ANSWERED | TARGET: direction | "
+            "USER_INPUT:answer-start-x | 2026-07-22T10:00:00Z |"
+        )
+        oversized = (
+            "## Start Alignment\n\n"
+            f"{QUESTION_HEADER}\n{QUESTION_SEPARATOR}\n"
+            + "\n".join(row.replace("Q-START-X", f"Q-START-{index}") for index in range(5_001))
+            + "\n\n"
+            f"{BATCH_HEADER}\n{BATCH_SEPARATOR}\n"
+        )
+        _questions, _batches, errors = atlas_module.validate_alignment_section(
+            "PROJECT_ATLAS.md",
+            oversized,
+            "Start Alignment",
+            draft=True,
+        )
+        self.assertTrue(any("row limit" in error.casefold() for error in errors), errors)
+
     def test_future_dated_trace_evidence_is_rejected(self) -> None:
         atlas_module = self.load_atlas_subject()
         record = {
@@ -1203,6 +2689,327 @@ class AtlasSecurityRegressionTests(unittest.TestCase):
             self.assertIn("unsafe", str(raised.exception).lower())
             self.assertFalse(canary.exists(), "repository-local executable was launched")
 
+    @unittest.skipUnless(os.name == "posix", "POSIX hardlink regression")
+    def test_safe_inventory_rejects_external_hardlinked_git_before_execution(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(
+            prefix="atlas external hardlinked git "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            tool_directory = root / "host-tools" / "bin"
+            project.mkdir()
+            tool_directory.mkdir(parents=True)
+            canary = root / "git-executed"
+            fake = tool_directory / "git"
+            fake.write_text(
+                "#!/bin/sh\n"
+                f": > {str(canary)!r}\n"
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            fake.chmod(0o755)
+            os.link(fake, project / "source.py")
+
+            with mock.patch.object(
+                atlas_module.shutil,
+                "which",
+                return_value=os.fspath(fake),
+            ):
+                with self.assertRaises(atlas_module.AtlasError):
+                    atlas_module.build_safe_inventory(project)
+
+            self.assertFalse(
+                canary.exists(),
+                "external hardlinked Git was launched before source rejection",
+            )
+
+    def test_host_executable_link_count_is_validated_by_owner(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        cases = (
+            ("ordinary-user-owned", 501, 1, True),
+            ("system-root-owned-multilink", 0, 78, True),
+            ("user-owned-multilink", 501, 2, False),
+            ("root-owned-zero-links", 0, 0, False),
+            ("root-owned-negative-links", 0, -1, False),
+            ("user-owned-nonnumeric-links", 501, "2", False),
+            ("root-owned-boolean-links", 0, True, False),
+        )
+        for label, file_uid, link_count, accepted in cases:
+            with self.subTest(label=label):
+                metadata = mock.Mock(st_uid=file_uid, st_nlink=link_count)
+                self.assertEqual(
+                    atlas_module.executable_link_count_is_trusted(metadata),
+                    accepted,
+                )
+
+    def test_project_and_enclosing_path_symlinks_to_system_tools_are_rejected(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+
+        with tempfile.TemporaryDirectory(
+            prefix="atlas project path symlink "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            repository = root / "repository"
+            project = repository / "packages" / "service"
+            (repository / ".git").mkdir(parents=True)
+            project.mkdir(parents=True)
+            trusted_host_directory = root / "trusted-host" / "bin"
+            trusted_host_directory.mkdir(parents=True)
+            trusted_rg = trusted_host_directory / "rg"
+            trusted_rg.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            trusted_rg.chmod(0o755)
+            candidates = (
+                ("project", project / "bin" / "rg"),
+                ("enclosing", repository / "bin" / "rg"),
+            )
+            for location, candidate in candidates:
+                with self.subTest(location=location):
+                    candidate.parent.mkdir(parents=True, exist_ok=True)
+                    candidate.symlink_to(trusted_rg)
+                    with mock.patch.object(
+                        atlas_module.shutil,
+                        "which",
+                        return_value=os.fspath(candidate),
+                    ):
+                        with self.assertRaises(atlas_module.AtlasError) as raised:
+                            atlas_module.trusted_host_executable(
+                                "rg",
+                                prohibited_roots=(project,),
+                            )
+                    self.assertIn("unsafe", str(raised.exception).lower())
+
+            enclosing_rg = repository / "bin" / "rg"
+            enclosing_rg.unlink()
+            enclosing_rg.symlink_to(trusted_rg)
+            external_alias = root / "external-path-alias"
+            external_alias.symlink_to(enclosing_rg.parent, target_is_directory=True)
+            aliased_candidate = external_alias / "rg"
+            with mock.patch.object(
+                atlas_module.shutil,
+                "which",
+                return_value=os.fspath(aliased_candidate),
+            ):
+                with self.assertRaises(atlas_module.AtlasError) as raised:
+                    atlas_module.trusted_host_executable(
+                        "rg",
+                        prohibited_roots=(project,),
+                    )
+            self.assertIn("unsafe", str(raised.exception).lower())
+
+    def test_host_tool_alias_to_a_different_program_name_is_rejected(self) -> None:
+        trusted_target_text = shutil.which("sh")
+        self.assertIsNotNone(
+            trusted_target_text,
+            "host-tool name regression requires a system shell",
+        )
+        trusted_target = Path(trusted_target_text).resolve(strict=True)
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(
+            prefix="atlas mismatched host tool name "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            candidate = root / "host-tools" / "rg"
+            project.mkdir()
+            candidate.parent.mkdir()
+            candidate.symlink_to(trusted_target)
+            with mock.patch.object(
+                atlas_module.shutil,
+                "which",
+                return_value=os.fspath(candidate),
+            ):
+                with self.assertRaises(atlas_module.AtlasError) as raised:
+                    atlas_module.trusted_host_executable(
+                        "rg",
+                        prohibited_roots=(project,),
+                    )
+            self.assertIn("unsafe", str(raised.exception).lower())
+
+    def test_host_executable_name_matching_is_portable_and_exact(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        cases = (
+            ("posix", "rg", True),
+            ("posix", "RG", False),
+            ("posix", "rg.exe", False),
+            ("nt", "rg", True),
+            ("nt", "RG", True),
+            ("nt", "rg.exe", True),
+            ("nt", "RG.EXE", True),
+            ("nt", "sh", False),
+            ("nt", "rg.bat", False),
+            ("nt", "rg.cmd", False),
+            ("nt", "rg.exe.bak", False),
+            ("nt", "not-rg.exe", False),
+        )
+        for platform_name, actual_name, accepted in cases:
+            with self.subTest(platform=platform_name, actual=actual_name):
+                self.assertEqual(
+                    atlas_module.host_executable_name_matches(
+                        "rg",
+                        Path("/trusted") / actual_name,
+                        platform_name=platform_name,
+                    ),
+                    accepted,
+                )
+
+    def test_host_executable_reparse_points_are_traced_or_rejected(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        junction_tag = 0xA0000003
+        junction_metadata = mock.Mock(
+            st_mode=stat.S_IFDIR | 0o755,
+            st_file_attributes=reparse_flag,
+            st_reparse_tag=junction_tag,
+        )
+        with mock.patch.object(
+            atlas_module.stat,
+            "IO_REPARSE_TAG_MOUNT_POINT",
+            junction_tag,
+            create=True,
+        ):
+            self.assertTrue(
+                atlas_module.executable_path_is_link(junction_metadata)
+            )
+
+        unknown_metadata = mock.Mock(
+            st_mode=stat.S_IFDIR | 0o755,
+            st_file_attributes=reparse_flag,
+            st_reparse_tag=0xDEADBEEF,
+        )
+        with self.assertRaises(OSError):
+            atlas_module.executable_path_is_link(unknown_metadata)
+
+        non_numeric_metadata = mock.Mock(
+            st_mode=stat.S_IFDIR | 0o755,
+            st_file_attributes=mock.Mock(),
+            st_reparse_tag=mock.Mock(),
+        )
+        with self.assertRaises(OSError):
+            atlas_module.executable_path_is_link(non_numeric_metadata)
+
+    def test_host_tool_symlink_chain_cannot_relay_through_repository(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(
+            prefix="atlas repository symlink relay "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            repository = root / "repository"
+            project = repository / "packages" / "service"
+            repository_bin = repository / "bin"
+            trusted_bin = root / "trusted-host" / "bin"
+            (repository / ".git").mkdir(parents=True)
+            project.mkdir(parents=True)
+            repository_bin.mkdir()
+            trusted_bin.mkdir(parents=True)
+            trusted_rg = trusted_bin / "rg"
+            trusted_rg.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            trusted_rg.chmod(0o755)
+
+            for target_kind in ("absolute", "relative"):
+                with self.subTest(target=target_kind):
+                    relay = repository_bin / f"{target_kind}-relay"
+                    relay.symlink_to(trusted_rg)
+                    candidate = root / f"outside-{target_kind}" / "rg"
+                    candidate.parent.mkdir()
+                    if target_kind == "absolute":
+                        candidate.symlink_to(relay)
+                    else:
+                        candidate.symlink_to(
+                            os.path.relpath(relay, candidate.parent)
+                        )
+                    with mock.patch.object(
+                        atlas_module.shutil,
+                        "which",
+                        return_value=os.fspath(candidate),
+                    ):
+                        with self.assertRaises(atlas_module.AtlasError) as raised:
+                            atlas_module.trusted_host_executable(
+                                "rg",
+                                prohibited_roots=(project,),
+                            )
+                    self.assertIn("unsafe", str(raised.exception).lower())
+
+            for target_kind in ("absolute", "relative"):
+                with self.subTest(directory_target=target_kind):
+                    directory_relay = (
+                        repository / f"{target_kind}-directory-relay"
+                    )
+                    external_directory_alias = (
+                        root / f"outside-{target_kind}-directory-alias"
+                    )
+                    if target_kind == "absolute":
+                        directory_relay.symlink_to(
+                            trusted_bin,
+                            target_is_directory=True,
+                        )
+                        external_directory_alias.symlink_to(
+                            directory_relay,
+                            target_is_directory=True,
+                        )
+                    else:
+                        directory_relay.symlink_to(
+                            os.path.relpath(trusted_bin, directory_relay.parent),
+                            target_is_directory=True,
+                        )
+                        external_directory_alias.symlink_to(
+                            os.path.relpath(
+                                directory_relay,
+                                external_directory_alias.parent,
+                            ),
+                            target_is_directory=True,
+                        )
+                    with mock.patch.object(
+                        atlas_module.shutil,
+                        "which",
+                        return_value=os.fspath(external_directory_alias / "rg"),
+                    ):
+                        with self.assertRaises(atlas_module.AtlasError) as raised:
+                            atlas_module.trusted_host_executable(
+                                "rg",
+                                prohibited_roots=(project,),
+                            )
+                    self.assertIn("unsafe", str(raised.exception).lower())
+
+            cycle_candidate = root / "outside-cycle" / "rg"
+            cycle_relay = cycle_candidate.parent / "relay"
+            cycle_candidate.parent.mkdir()
+            cycle_candidate.symlink_to(cycle_relay)
+            cycle_relay.symlink_to(cycle_candidate)
+            with mock.patch.object(
+                atlas_module.shutil,
+                "which",
+                return_value=os.fspath(cycle_candidate),
+            ):
+                previous_handler = signal.getsignal(signal.SIGALRM)
+
+                def cycle_timeout(
+                    _signum: int,
+                    _frame: object,
+                ) -> None:
+                    raise AssertionError(
+                        "host executable symlink cycle did not terminate"
+                    )
+
+                signal.signal(signal.SIGALRM, cycle_timeout)
+                signal.setitimer(signal.ITIMER_REAL, 5)
+                try:
+                    with self.assertRaises(atlas_module.AtlasError) as raised:
+                        atlas_module.trusted_host_executable(
+                            "rg",
+                            prohibited_roots=(project,),
+                        )
+                finally:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                    signal.signal(signal.SIGALRM, previous_handler)
+            self.assertIn("unsafe", str(raised.exception).lower())
+
     def test_enclosing_repository_host_executables_are_rejected(self) -> None:
         atlas_module = self.load_atlas_subject()
         with tempfile.TemporaryDirectory(prefix="atlas enclosing repository tool ") as temp_dir:
@@ -1242,6 +3049,479 @@ class AtlasSecurityRegressionTests(unittest.TestCase):
                         canary.exists(),
                         "executable supplied by the enclosing repository was launched",
                     )
+
+    def test_group_writable_host_executables_are_rejected(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(prefix="atlas group writable host tool ") as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            tool_directory = root / "host-tools" / "bin"
+            project.mkdir()
+            tool_directory.mkdir(parents=True)
+
+            for name in ("git", "rg"):
+                with self.subTest(name=name):
+                    canary = root / f"{name}-executed"
+                    fake = tool_directory / name
+                    fake.write_text(
+                        "#!/bin/sh\n"
+                        f": > {str(canary)!r}\n"
+                        "exit 0\n",
+                        encoding="utf-8",
+                    )
+                    fake.chmod(0o775)
+                    with mock.patch.object(
+                        atlas_module.shutil,
+                        "which",
+                        return_value=str(fake),
+                    ):
+                        with self.assertRaises(atlas_module.AtlasError) as raised:
+                            atlas_module.trusted_host_executable(
+                                name,
+                                prohibited_roots=(project,),
+                            )
+                    self.assertIn("unsafe", str(raised.exception).lower())
+                    self.assertFalse(
+                        canary.exists(),
+                        "group-writable host executable was launched",
+                    )
+
+    def test_group_writable_host_executable_ancestors_are_rejected(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(
+            prefix="atlas group writable host ancestor "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            tool_parent = root / "host-tools"
+            tool_directory = tool_parent / "bin"
+            project.mkdir()
+            tool_directory.mkdir(parents=True)
+            tool_parent.chmod(0o770)
+            fake = tool_directory / "git"
+            fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake.chmod(0o755)
+
+            with mock.patch.object(
+                atlas_module.shutil,
+                "which",
+                return_value=str(fake),
+            ):
+                with self.assertRaises(atlas_module.AtlasError) as raised:
+                    atlas_module.trusted_host_executable(
+                        "git",
+                        prohibited_roots=(project,),
+                    )
+            self.assertIn("unsafe", str(raised.exception).lower())
+
+    def test_homebrew_cellar_group_writable_exception_is_narrow(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        trusted_owners = {0, 501}
+        process_groups = {20}
+        metadata = mock.Mock(st_mode=stat.S_IFDIR | 0o775, st_uid=501, st_gid=20)
+
+        self.assertTrue(
+            atlas_module.is_trusted_homebrew_cellar_directory(
+                Path("/opt/homebrew/Cellar"),
+                metadata,
+                trusted_owners,
+                process_groups,
+            )
+        )
+        self.assertFalse(
+            atlas_module.is_trusted_homebrew_cellar_directory(
+                Path("/opt/homebrew/bin"),
+                metadata,
+                trusted_owners,
+                process_groups,
+            )
+        )
+
+    def test_sticky_world_writable_exception_requires_a_trusted_owner(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        trusted_owners = {0, 501}
+        process_groups = {20}
+
+        self.assertTrue(
+            atlas_module.is_trusted_sticky_directory(
+                mock.Mock(st_mode=stat.S_IFDIR | 0o1777, st_uid=0),
+                trusted_owners,
+            )
+        )
+        self.assertTrue(
+            atlas_module.is_trusted_sticky_directory(
+                mock.Mock(st_mode=stat.S_IFDIR | 0o1777, st_uid=501),
+                trusted_owners,
+            )
+        )
+        self.assertFalse(
+            atlas_module.is_trusted_sticky_directory(
+                mock.Mock(st_mode=stat.S_IFDIR | 0o1777, st_uid=502),
+                trusted_owners,
+            )
+        )
+        self.assertFalse(
+            atlas_module.is_trusted_sticky_directory(
+                mock.Mock(st_mode=stat.S_IFDIR | 0o777, st_uid=501),
+                trusted_owners,
+            )
+        )
+        self.assertFalse(
+            atlas_module.is_trusted_sticky_directory(
+                mock.Mock(st_mode=stat.S_IFDIR | 0o1770, st_uid=501),
+                trusted_owners,
+            )
+        )
+        self.assertTrue(
+            atlas_module.is_trusted_executable_ancestor(
+                Path("/safe/tools"),
+                mock.Mock(
+                    st_mode=stat.S_IFDIR | 0o755,
+                    st_uid=501,
+                    st_gid=20,
+                ),
+                trusted_owners,
+                process_groups,
+            )
+        )
+        self.assertFalse(
+            atlas_module.is_trusted_executable_ancestor(
+                Path("/foreign/tools"),
+                mock.Mock(
+                    st_mode=stat.S_IFDIR | 0o755,
+                    st_uid=502,
+                    st_gid=20,
+                ),
+                trusted_owners,
+                process_groups,
+            )
+        )
+
+    @unittest.skipUnless(os.name == "posix", "POSIX sticky-directory regression")
+    def test_host_executable_below_trusted_sticky_ancestor_is_accepted(
+        self,
+    ) -> None:
+        tmp_root = Path("/tmp")
+        try:
+            tmp_mode = tmp_root.stat().st_mode
+        except OSError:
+            self.skipTest("/tmp is unavailable")
+        if not (
+            tmp_mode & stat.S_ISVTX
+            and tmp_mode & stat.S_IWGRP
+            and tmp_mode & stat.S_IWOTH
+        ):
+            self.skipTest("/tmp is not a sticky world-writable directory")
+
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(
+            prefix="atlas sticky host tool ",
+            dir=tmp_root,
+        ) as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            tool_directory = root / "host-tools" / "bin"
+            project.mkdir()
+            tool_directory.mkdir(parents=True)
+            executable = tool_directory / "git"
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+
+            with mock.patch.object(
+                atlas_module.shutil,
+                "which",
+                return_value=os.fspath(executable),
+            ):
+                self.assertEqual(
+                    atlas_module.trusted_host_executable(
+                        "git",
+                        prohibited_roots=(project,),
+                    ),
+                    os.fspath(executable.resolve(strict=True)),
+                )
+
+    def test_foreign_owned_host_executable_ancestor_is_rejected(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(
+            prefix="atlas foreign owned host ancestor "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            tool_parent = root / "host-tools"
+            tool_directory = tool_parent / "bin"
+            project.mkdir()
+            tool_directory.mkdir(parents=True)
+            executable = tool_directory / "git"
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+            resolved_executable = executable.resolve(strict=True)
+            resolved_tool_parent = resolved_executable.parent.parent
+            real_path_stat = atlas_module.Path.stat
+            effective_uid = os.geteuid() if hasattr(os, "geteuid") else 0
+            foreign_uid = next(
+                uid for uid in range(1, 10_000) if uid not in {0, effective_uid}
+            )
+
+            def controlled_stat(
+                path: Path,
+                *args: object,
+                **kwargs: object,
+            ) -> object:
+                metadata = real_path_stat(path, *args, **kwargs)
+                if path == resolved_tool_parent:
+                    values = list(metadata)
+                    values[4] = foreign_uid
+                    return os.stat_result(values)
+                return metadata
+
+            with (
+                mock.patch.object(
+                    atlas_module.shutil,
+                    "which",
+                    return_value=os.fspath(resolved_executable),
+                ),
+                mock.patch.object(
+                    atlas_module.Path,
+                    "stat",
+                    new=controlled_stat,
+                ),
+            ):
+                with self.assertRaises(atlas_module.AtlasError) as raised:
+                    atlas_module.trusted_host_executable(
+                        "git",
+                        prohibited_roots=(project,),
+                    )
+            self.assertIn("unsafe", str(raised.exception).lower())
+
+    def test_host_executable_owner_must_be_root_or_effective_user(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(prefix="atlas wrong owner host tool ") as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            tool_directory = root / "host-tools" / "bin"
+            project.mkdir()
+            tool_directory.mkdir(parents=True)
+            fake = tool_directory / "git"
+            fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake.chmod(0o755)
+            executable = fake.resolve(strict=True)
+            original_stat = atlas_module.Path.stat
+            effective_uid = os.geteuid() if hasattr(os, "geteuid") else 0
+            wrong_uid = 1
+            while wrong_uid in {0, effective_uid}:
+                wrong_uid += 1
+
+            def controlled_stat(path: Path, *args: object, **kwargs: object) -> object:
+                metadata = original_stat(path, *args, **kwargs)
+                if path == executable:
+                    return mock.Mock(
+                        st_mode=metadata.st_mode,
+                        st_uid=wrong_uid,
+                        st_nlink=metadata.st_nlink,
+                        st_file_attributes=0,
+                        st_reparse_tag=0,
+                    )
+                return metadata
+
+            with (
+                mock.patch.object(atlas_module.shutil, "which", return_value=str(fake)),
+                mock.patch.object(atlas_module.Path, "stat", new=controlled_stat),
+            ):
+                with self.assertRaises(atlas_module.AtlasError) as raised:
+                    atlas_module.trusted_host_executable(
+                        "git",
+                        prohibited_roots=(project,),
+                    )
+            self.assertIn("unsafe", str(raised.exception).lower())
+
+    def test_host_executable_rejects_unsupported_platform_before_path_lookup(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        path_lookup = mock.Mock(
+            side_effect=AssertionError(
+                "unsupported platform performed host executable PATH lookup"
+            )
+        )
+        with (
+            mock.patch.object(atlas_module.os, "supports_dir_fd", set(), create=True),
+            mock.patch.object(atlas_module.shutil, "which", path_lookup),
+        ):
+            with self.assertRaises(atlas_module.AtlasError) as raised:
+                atlas_module.trusted_host_executable(
+                    "git",
+                    prohibited_roots=(Path("D:/project"),),
+                )
+        self.assertIn("unsafe", str(raised.exception).lower())
+        path_lookup.assert_not_called()
+
+    def test_host_executable_without_unix_identity_apis_fails_closed_portably(
+        self,
+    ) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(prefix="atlas portable owner host tool ") as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            tool_directory = root / "host-tools" / "bin"
+            project.mkdir()
+            tool_directory.mkdir(parents=True)
+            fake = tool_directory / "git"
+            fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake.chmod(0o755)
+            executable = fake.resolve(strict=True)
+            original_stat = atlas_module.Path.stat
+
+            for file_uid, accepted in ((0, True), (1, False)):
+                with self.subTest(file_uid=file_uid):
+                    def controlled_stat(
+                        path: Path,
+                        *args: object,
+                        **kwargs: object,
+                    ) -> object:
+                        metadata = original_stat(path, *args, **kwargs)
+                        values = list(metadata)
+                        if path == executable:
+                            values[0] = stat.S_IFREG | 0o755
+                            values[4] = file_uid
+                            return os.stat_result(values)
+                        if path in executable.parents:
+                            values[0] = stat.S_IFDIR | 0o755
+                            values[4] = 0
+                            return os.stat_result(values)
+                        return metadata
+
+                    with (
+                        mock.patch.object(atlas_module.shutil, "which", return_value=str(fake)),
+                        mock.patch.object(atlas_module.Path, "stat", new=controlled_stat),
+                        mock.patch.object(atlas_module.os, "geteuid", None, create=True),
+                        mock.patch.object(atlas_module.os, "getgroups", None, create=True),
+                        mock.patch.object(atlas_module.os, "getegid", None, create=True),
+                        mock.patch.object(atlas_module.os, "access", return_value=True),
+                    ):
+                        if accepted and os.name != "nt":
+                            resolved = atlas_module.trusted_host_executable(
+                                "git",
+                                prohibited_roots=(project,),
+                            )
+                            self.assertEqual(resolved, str(executable))
+                        else:
+                            with self.assertRaises(atlas_module.AtlasError):
+                                atlas_module.trusted_host_executable(
+                                    "git",
+                                    prohibited_roots=(project,),
+                                )
+
+    def test_unrelated_repository_host_executables_are_accepted(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(prefix="atlas unrelated repository tool ") as temp_dir:
+            root = Path(temp_dir)
+            project = root / "project"
+            tool_repository = root / "host-tools"
+            tool_directory = tool_repository / "bin"
+            project.mkdir()
+            (tool_repository / ".git").mkdir(parents=True)
+            tool_directory.mkdir()
+
+            for name in ("git", "rg"):
+                with self.subTest(name=name):
+                    fake = tool_directory / name
+                    fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                    fake.chmod(0o755)
+                    original_which = atlas_module.shutil.which
+                    atlas_module.shutil.which = lambda _name, candidate=fake: str(candidate)
+                    try:
+                        executable = atlas_module.trusted_host_executable(
+                            name,
+                            prohibited_roots=(project,),
+                        )
+                    finally:
+                        atlas_module.shutil.which = original_which
+                    self.assertEqual(executable, str(fake.resolve(strict=True)))
+
+                    leaf_alias = root / f"{name}-leaf-alias" / name
+                    leaf_alias.parent.mkdir()
+                    leaf_alias.symlink_to(fake)
+                    directory_alias = root / f"{name}-directory-alias"
+                    directory_alias.symlink_to(
+                        tool_directory,
+                        target_is_directory=True,
+                    )
+                    for alias_kind, candidate in (
+                        ("leaf", leaf_alias),
+                        ("directory", directory_alias / name),
+                    ):
+                        with self.subTest(name=name, alias=alias_kind):
+                            with mock.patch.object(
+                                atlas_module.shutil,
+                                "which",
+                                return_value=os.fspath(candidate),
+                            ):
+                                executable = atlas_module.trusted_host_executable(
+                                    name,
+                                    prohibited_roots=(project,),
+                                )
+                            self.assertEqual(
+                                executable,
+                                os.fspath(fake.resolve(strict=True)),
+                            )
+
+    def test_nested_tool_repository_does_not_mask_an_enclosing_repository(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(prefix="atlas nested repository tool ") as temp_dir:
+            repository = Path(temp_dir) / "repository"
+            project = repository / "packages" / "service"
+            tool_repository = repository / "vendor" / "host-tools"
+            tool_directory = tool_repository / "bin"
+            (repository / ".git").mkdir(parents=True)
+            project.mkdir(parents=True)
+            (tool_repository / ".git").mkdir(parents=True)
+            tool_directory.mkdir()
+
+            for name in ("git", "rg"):
+                with self.subTest(name=name):
+                    fake = tool_directory / name
+                    fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                    fake.chmod(0o755)
+                    original_which = atlas_module.shutil.which
+                    atlas_module.shutil.which = lambda _name, candidate=fake: str(candidate)
+                    try:
+                        with self.assertRaises(atlas_module.AtlasError) as raised:
+                            atlas_module.trusted_host_executable(
+                                name,
+                                prohibited_roots=(project,),
+                            )
+                    finally:
+                        atlas_module.shutil.which = original_which
+                    self.assertIn("unsafe", str(raised.exception).lower())
+
+    def test_case_alias_cannot_bypass_project_local_executable_rejection(self) -> None:
+        atlas_module = self.load_atlas_subject()
+        with tempfile.TemporaryDirectory(prefix="atlas case alias tool ") as temp_dir:
+            root = Path(temp_dir)
+            project = root / "ProjectRoot"
+            tool_directory = project / "Bin"
+            tool_directory.mkdir(parents=True)
+            fake = tool_directory / "git"
+            fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake.chmod(0o755)
+            alternate = root / "projectroot" / "bin" / "git"
+            try:
+                same_file = os.path.samefile(fake, alternate)
+            except (FileNotFoundError, OSError):
+                self.skipTest("filesystem is case-sensitive")
+            if not same_file:
+                self.skipTest("filesystem is case-sensitive")
+
+            original_which = atlas_module.shutil.which
+            atlas_module.shutil.which = lambda _name: str(alternate)
+            try:
+                with self.assertRaises(atlas_module.AtlasError) as raised:
+                    atlas_module.git_ignore_executable(project)
+            finally:
+                atlas_module.shutil.which = original_which
+            self.assertIn("unsafe", str(raised.exception).lower())
 
     def load_atlas_subject(self):
         spec = importlib.util.spec_from_file_location("atlas_security_subject", ATLAS_SCRIPT)

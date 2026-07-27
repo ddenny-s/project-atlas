@@ -167,13 +167,33 @@ class RepositoryHygieneTests(unittest.TestCase):
             + re.escape(private_project_name)
             + r"\b)"
         )
+        home_prefix = "/" + "home"
+        standard_linuxbrew_path = re.compile(
+            re.escape(home_prefix + "/linuxbrew/.linuxbrew/")
+            + r"(?:Cellar|bin)(?=$|[/\s`'\"),}\]])"
+        )
+        for intentional in (
+            f'Path("{home_prefix}/linuxbrew/.linuxbrew/Cellar"),',
+            f'Path("{home_prefix}/linuxbrew/.linuxbrew/bin")',
+        ):
+            self.assertIsNone(
+                forbidden.search(standard_linuxbrew_path.sub("", intentional))
+            )
+        for accidental in (
+            f'Path("{home_prefix}/example/project")',
+            f'Path("{home_prefix}/linuxbrew/.linuxbrew/Cellar-copy")',
+        ):
+            self.assertIsNotNone(
+                forbidden.search(standard_linuxbrew_path.sub("", accidental))
+            )
         offenders: list[str] = []
         for path in iter_release_files():
             text = read_production_text(path)
             if text is None:
                 continue
             for line_number, line in enumerate(text.splitlines(), 1):
-                if forbidden.search(line):
+                inspected = standard_linuxbrew_path.sub("", line)
+                if forbidden.search(inspected):
                     offenders.append(f"{path.relative_to(REPO_ROOT)}:{line_number}")
         self.assertEqual(offenders, [], f"local/private references found: {offenders}")
 

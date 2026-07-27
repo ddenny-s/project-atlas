@@ -28,7 +28,7 @@
     ],
     "websiteURL": "https://github.com/ddenny-s/project-atlas",
     "defaultPrompt": [
-      "Use $project-atlas:map-project to create a STANDARD atlas of this repository."
+      "Use $project-atlas:map-project to create a verifiable atlas of this project."
     ]
   }
 }

@@ -1,6 +1,6 @@
 ---
 name: map-project
-description: Investigate an unfamiliar, inherited, legacy, or changing software project and create or refresh an evidence-backed Project Atlas. Use for project mapping, architecture audits, refactor preparation, source-of-truth discovery, runtime/data/state/authority documentation, risk and migration analysis, continuation handoffs, and incremental atlas drift checks.
+description: Investigate an unfamiliar, inherited, legacy, or changing software project and create or refresh an evidence-backed Project Atlas. Use for project mapping, architecture audits, refactor preparation, source-of-truth discovery, runtime/data/state/authority documentation, owner alignment, risk and migration analysis, future-task derivation, continuation handoffs, and incremental atlas drift checks.
 ---
 
 # Map Project
@@ -14,6 +14,12 @@ Create a bounded, evidence-backed map that another investigator can navigate and
 3. Treat the request as read-only for product code, configuration, dependencies, data, and production unless the user explicitly authorizes more.
 4. Inspect an existing atlas before writing. Preserve user text and update it incrementally.
 5. Keep unrelated dirty-worktree changes untouched. Check for adjacent writers before updating shared atlas files.
+
+## Align before deep work
+
+Read [user-interaction-and-budget.md](references/user-interaction-and-budget.md) and complete `START_ALIGNMENT` before deep work. Ask adaptively in batches of one to three, with no total cap. Every visible question has exactly four choices A through D, and D is exactly `Другое — напишу сам`. Keep unknown, skip, and user stop as separate controls. If a host picker cannot preserve the exact four choices, use plain chat.
+
+Continue only while the next answer can materially change scope, authority, mode, interpretation of a material claim, output routing or contract, or the future-task backlog. Otherwise record `STOP_STABLE`. Record active answers as `USER_INPUT:<Question ID>` provenance. They can support scope, authority, `TARGET` direction, output, acceptance, priority, and backlog, but never a technical current-state fact.
 
 ## Govern host resources and collaboration
 
@@ -42,6 +48,22 @@ Use these output shapes:
 - `QUICK`: create exactly one `PROJECT_ATLAS.md`; its one bounded `rg --no-config` verification command is replayed at completion.
 - `STANDARD`: create the routed current-state, flow, quality, target-state, migration, unknowns, and handoff set.
 - `FORENSIC`: create the full routed set plus traceability, quantitative coverage, source hashes, and independent review.
+
+## Forecast deep-work blocks
+
+When `references/host-guidance.md` is present, read it before choosing a host model, alias, reasoning or effort setting, question UI, or quota display. Treat it as dated provider guidance to evaluate, never as measured Atlas performance or a replacement for this host-neutral contract.
+
+Generate a deterministic host-neutral planning baseline when the helper is available:
+
+```text
+PYTHONDONTWRITEBYTECODE=1 python3 <skill-dir>/scripts/atlas.py estimate-budget --project <project> --mode <mode>
+```
+
+Treat its `MODELLED` / `ASSUMPTION` output as safe-inventory-based planning only. It excludes pre-existing conversation and quota conversion; its maximum is a reforecast threshold rather than a hard cap.
+
+Before the initial deep-work block and each later deep-work block, show and record a PRE estimate in integer `MODEL_TOKENS`: `Min`, `Typical`, `Max`, assumptions, and a host-neutral model capability tier and effort setting. Treat `Max` as the threshold for a safe checkpoint and reforecast, not a hard cap. After every block, record POST using only exact host telemetry or `UNMEASURED`; do not estimate missing values.
+
+Never derive quota or usage percentages from model-token counts. Show a weekly-usage line only when the host supplies that exact weekly signal; otherwise omit the line.
 
 ## Build a safe structural index
 
@@ -82,7 +104,7 @@ For each contour:
 3. Check sibling runtimes, shared writers, alternative configurations, legacy paths, and tests of the same contract.
 4. Record the result immediately with source references.
 5. Verify the cited sources and mark gaps `UNKNOWN`.
-6. Refresh `LIVE_HANDOFF.md` before moving to the next contour.
+6. Record the block POST row and refresh `LIVE_HANDOFF.md` before moving to the next contour.
 
 Map at least:
 
@@ -117,9 +139,19 @@ For every material FORENSIC registry claim, add an exact `atlas_refs` link from 
 
 For QUICK verification and `COMMAND` traceability, record a bounded `rg --no-config` command that was actually run against explicit safe-inventory targets, quote shell globs, avoid prose or pseudo-commands, and keep the working directory project-relative. A directory target or multiple targets require exact `--sort path`; reverse or metadata-based sort modes are not completion evidence. Record notes as `cwd=<relative>; exit=<integer>; stdout_sha256=<64 hex>`. If the command was not executed or its result was not captured, use `UNKNOWN` instead of `CONFIRMED`. FORENSIC completion requires at least one active `COMMAND` row.
 
+## Derive future tasks without implementing them
+
+Create every future task justified by the candidate map; do not force a fixed count. Put QUICK tasks in `PROJECT_ATLAS.md` and STANDARD or FORENSIC tasks in `MIGRATION_PLAN.md`. Every row has claim kind `TARGET` and status `READY`, `BLOCKED`, `SUPERSEDED`, or `REJECTED`.
+
+For every active `READY` or `BLOCKED` row, write substantive, non-draft values for `Outcome`, `Basis`, `Affected areas`, `Scope`, `Non-goals`, `Acceptance criteria`, `Dependencies and unknowns`, `Risks`, and `Verification`. In `Basis`, cite either a safe project-relative source or `MAP:<atlas-file>#<stable-anchor>` that resolves to a visible, unique, non-interaction level-two section with substantive content in an Atlas artifact for the selected mode.
+
+A `READY` task also cites an active answered `USER_INPUT:<Question ID>` in `Basis`. A `BLOCKED` task may omit only that owner input: it still needs the same substantive fields and technical basis, and names the dependency as canonical `UNKNOWN:<stable-id>` in `Dependencies and unknowns`. Any cited `USER_INPUT` must be active and non-dangling. Completion has at least one `READY` or honest `BLOCKED` task. Mapping never authorizes or starts implementation.
+
 ## Validate and hand off
 
 The bundled helper requires Python 3.10 or newer and safe POSIX directory-descriptor primitives. It runs on macOS and Linux and fails closed on native Windows; record the gap and use equally bounded host-native tools there.
+
+Complete `FINISH_ALIGNMENT` against the candidate map and candidate future-task backlog before completion validation. For FORENSIC, do this before the final source snapshot and independent reviews. If an answer changes the map or backlog, update the affected artifacts, mark replaced alignment records `SUPERSEDED`, and repeat `FINISH_ALIGNMENT` until it reaches `STOP_STABLE`, `STOP_USER`, or `STOP_UNAVAILABLE`.
 
 Validate the declared output contract:
 
@@ -141,7 +173,7 @@ For FORENSIC, snapshot every validated active evidence source: `FILE`, `SCHEMA`,
 PYTHONDONTWRITEBYTECODE=1 python3 <skill-dir>/scripts/atlas.py snapshot --atlas <atlas-dir> --project <project> --output <atlas-dir>/SOURCE_SNAPSHOT.json
 ```
 
-The snapshot's `files` population is exactly the non-empty union of distinct completion-active file-like references and explicit allowlisted `COMMAND` target members. A directory target expands only to its safe-inventory members under the replay count and byte ceilings; unrelated allowlisted contents are not opened. Its safe-inventory manifest hashes relative path names only. `evidence_scope.unique_evidence_files` and `hashed_files` record this exact population. Snapshot v0.2 binds this source scope and all canonical non-review atlas content in `review_input.sha256`, while binding review records separately. After the evidence scope is stable, retain one fresh-context or external `CORRECTNESS` review and one `SECURITY` review from distinct reviewers. Both bind to `review_input.sha256`, record `PASS`, `0` Critical, `0` Important, concrete retained evidence, remaining limits, a UTC time no earlier than the evidence boundary, no more than seven days later, and no more than five minutes ahead of the validating host clock, plus exact ledger coverage. Refresh the snapshot after adding review ledger rows; any non-review content change requires both reviews again. Wall-clock age alone does not invalidate an unchanged content-addressed attestation. These rows are retained attestations: the host must enforce real reviewer separation and semantic challenge because the helper cannot authenticate reviewer identity or natural-language entailment.
+The snapshot's `files` population is exactly the non-empty union of distinct completion-active file-like references and explicit allowlisted `COMMAND` target members. A directory target expands only to its safe-inventory members under the replay count and byte ceilings; unrelated allowlisted contents are not opened. Its safe-inventory manifest hashes relative path names only. `evidence_scope.unique_evidence_files` and `hashed_files` record this exact population. Snapshot v0.2 binds this source scope and all canonical non-review atlas content, including final owner direction and future tasks, in `review_input.sha256`, while binding review records separately. After the evidence scope is stable, retain one fresh-context or external `CORRECTNESS` review and one `SECURITY` review from distinct reviewers. Both bind to `review_input.sha256`, record `PASS`, `0` Critical, `0` Important, concrete retained evidence, remaining limits, a UTC time no earlier than the evidence boundary, no more than seven days later, and no more than five minutes ahead of the validating host clock, plus exact ledger coverage. Refresh the snapshot after adding review ledger rows; any non-review content change requires both reviews again. Wall-clock age alone does not invalidate an unchanged content-addressed attestation. These rows are retained attestations: the host must enforce real reviewer separation and semantic challenge because the helper cannot authenticate reviewer identity or natural-language entailment.
 
 Recheck that outputs contain no secrets, private content, or local absolute paths. Record denominators, exclusions, stale evidence, and unresolved boundaries. For STANDARD, request independent human review before consequential changes when the host or delivery process supports it; this is a workflow recommendation, not a machine-validated completion record. FORENSIC uses the two machine-validated review records above.
 

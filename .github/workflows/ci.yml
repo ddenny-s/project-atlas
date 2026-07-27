@@ -75,7 +75,10 @@ jobs:
           tests.test_repository_hygiene
           tests.test_skill_contract
           tests.test_cross_platform_contracts
+          tests.test_atlas_security.AtlasSecurityRegressionTests.test_host_executable_without_unix_identity_apis_fails_closed_portably
+          tests.test_atlas_security.AtlasSecurityRegressionTests.test_host_executable_rejects_unsupported_platform_before_path_lookup
           tests.test_sync_adapters.SyncAdaptersTransactionTests.test_check_mode_is_state_free_when_scratch_is_absent
+          tests.test_sync_adapters.SyncAdaptersTransactionTests.test_windows_clean_check_mode_does_not_report_inventory_change
           tests.test_sync_adapters.SyncAdaptersTransactionTests.test_check_mode_fails_closed_if_state_appears_during_scan
           tests.test_sync_adapters.SyncAdaptersTransactionTests.test_windows_write_mode_is_rejected_before_repository_lock
           tests.test_sync_adapters.SyncAdaptersTransactionTests.test_windows_promotion_fails_closed_without_handle_relative_rename
