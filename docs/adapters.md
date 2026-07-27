@@ -1,5 +1,7 @@
 # Adapter Architecture
 
+[English](./adapters.md) · [Русский](./adapters.ru.md)
+
 Project Atlas separates a host-independent protocol from host-specific distribution and invocation. This lets the evidence model evolve once while Codex, Claude Code, and future AI tools integrate through small adapters.
 
 ## Layer model

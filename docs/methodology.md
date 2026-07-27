@@ -1,5 +1,7 @@
 # Project Atlas Methodology
 
+[English](./methodology.md) · [Русский](./methodology.ru.md)
+
 This document defines the tool-independent investigation protocol. Adapters may change invocation syntax, packaging, and how host capabilities are called. They must preserve the semantics described here.
 
 ## 1. Objective

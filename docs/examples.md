@@ -1,5 +1,7 @@
 # Usage Examples
 
+[English](./examples.md) · [Русский](./examples.ru.md)
+
 The examples below use explicit invocation so the intended adapter and workflow are unambiguous. Codex is the primary adapter; equivalent Claude Code invocations follow each core scenario.
 
 ## 1. QUICK map of a small CLI

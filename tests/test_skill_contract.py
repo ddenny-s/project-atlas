@@ -50,6 +50,8 @@ class CoreSkillContractTests(unittest.TestCase):
             "docs/adapters.ru.md",
             "docs/case-study.md",
             "docs/case-study.ru.md",
+            "docs/effectiveness.md",
+            "docs/effectiveness.ru.md",
         )
         for relative_path in required_files:
             with self.subTest(path=relative_path):

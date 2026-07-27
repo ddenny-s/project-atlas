@@ -1,5 +1,7 @@
 # Depth Levels
 
+[English](./depth-levels.md) · [Русский](./depth-levels.ru.md)
+
 Project Atlas scales the investigation to the decision and risk. QUICK, STANDARD, and FORENSIC are different evidence contracts, not cosmetic document presets.
 
 ## Selection factors

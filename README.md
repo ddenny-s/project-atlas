@@ -5,57 +5,161 @@
 </p>
 
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="Project Atlas turns current code into evidence, a ready task, and a verified new current state">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Project Atlas: stop reintroducing AI to your project; in the illustrative open-model scenario, ten tasks use 700,000 tokens without Atlas and 570,000 with Atlas, 18.6 percent less; modelled break-even begins on task 6 and the optimistic scenario shows up to 51.1 percent savings; this is an open model, not a field measurement or a user average">
 </p>
 
 <p align="center">
-  <strong>A verifiable software-product map for coding agents.</strong><br>
-  Codex is the primary adapter (host integration). Claude Code is the first additional adapter.<br>
-  The protocol — the shared rules for building and checking the map — does not depend on one AI tool.
+  <strong>Map the project once. Start every later task from verified facts.</strong><br>
+  Project Atlas turns a product's structure into an updatable map, ready tasks, and a short working context.<br>
+  Codex is the primary adapter. Claude Code is the first additional adapter.
 </p>
 
 <p align="center">
   <a href="#30-seconds">30 seconds</a>
   ·
-  <a href="#five-minutes-to-your-first-run">Five-minute start</a>
+  <a href="#why-this-can-save-tokens-and-time">Economics</a>
   ·
-  <a href="#end-to-end-map--task--change">End-to-end example</a>
+  <a href="#what-you-can-verify-today">Evidence</a>
   ·
-  <a href="#what-to-do-with-the-map">What happens next</a>
+  <a href="#five-minutes-to-your-first-request">5-minute start</a>
   ·
-  <a href="#technical-deep-dive">Technical deep dive</a>
+  <a href="#what-to-do-with-the-map-next">What next</a>
+  ·
+  <a href="#technical-reference">Technical reference</a>
 </p>
 
 ## 30 seconds
 
-Project Atlas helps a coding agent understand an unfamiliar or forgotten
-project without turning confident guesses into facts.
+A new AI session usually starts from scratch. It finds entry points, reads the
+same files, reconstructs relationships, works out the boundaries, and only
+then starts the task. Some of that work repeats with every new request.
 
-Put simply: it shows the agent what is where, how the parts connect, what is
-known, and where it is safe to start.
+**Atlas makes that first investigation reusable.** It saves a verifiable map
+of code, data, authority, background processes, tests, risks, and product
+direction, not a chat summary. Every material claim points to a source file and
+has an honest label: `CONFIRMED`, `INFERENCE`, `HYPOTHESIS`, `TARGET`, or
+`UNKNOWN`.
 
-It finds runtime roots, data, authority, background work, external boundaries,
-tests, and risks. Every material claim points to source evidence and carries
-one label: `CONFIRMED`, `INFERENCE`, `HYPOTHESIS`, `TARGET`, or `UNKNOWN`.
+Once the map exists, the workflow looks like this:
 
-The result is not another document for its own sake. The map becomes a
-verifiable starting point for the next piece of work:
+1. Atlas proposes a ready Future Task: a work card with the outcome, scope,
+   deliberate non-goals, and acceptance criteria.
+2. For the chosen task, the agent builds a short **Task Context Packet** with
+   only the facts, files, risks, and checks it needs.
+3. Before editing, it rereads the exact sources instead of blindly trusting an
+   old map.
+4. After the change, it runs tests and refreshes the map. The next session
+   starts from the new verified state.
 
 ```text
-CURRENT map → TARGET task → source recheck → change
-→ tests → refreshed CURRENT map
+MAP → READY TASK → NEEDED CONTEXT → CHANGE → TESTS → NEW MAP
 ```
 
-| Without a map | With Atlas |
-| --- | --- |
-| A new session rediscovers the project | It starts from named files, relationships, and risks |
-| A guess can look like a fact | Facts, inferences, targets, and unknowns stay separate |
-| “Add a feature” has no boundary | A task carries an outcome, scope, non-goals, and acceptance |
-| Old context disappears after a change | The map is refreshed and checked again |
+Atlas **does not change product code while mapping** and **does not start
+Future Tasks on its own**. It creates the basis for later work; the user
+chooses the specific task.
 
-Atlas **does not change product code while mapping** and does not start future
-tasks on its own. The user chooses a task, and the next agent rechecks the
-sources before implementation.
+### What gets easier
+
+| Without Atlas | With Atlas |
+| --- | --- |
+| Every new session gets to know the project again | Discovered relationships stay with the project and carry across sessions |
+| To fix a bug, the agent reads files broadly | The Task Context Packet keeps only the files and facts for the selected task |
+| "Add a feature" says nothing about boundaries | The Future Task already has an outcome, scope, non-goals, risks, and acceptance criteria |
+| A guess can turn into a confident answer | Facts, inferences, targets, and unknowns remain separate |
+| After a change, old knowledge stays in the chat | Sources are checked again and the map is refreshed after tests |
+| A handoff to another agent starts with a retelling | Codex and Claude Code read the same host-independent protocol |
+
+### Who needs it
+
+**Use Atlas** when a product has a series of bug fixes, features, refactors,
+migrations, audits, or handoffs ahead. The longer the project lives and the
+more expensive a mistake is, the more useful saved context becomes.
+
+**Do not install Atlas for one obvious edit** in a small script. The map adds
+cost to the first task. It pays back only when the knowledge is used again.
+
+## Why this can save tokens and time
+
+### The main reference point
+
+In the open model's **illustrative scenario** for ten follow-up tasks:
+
+| | Without Atlas | With Atlas |
+| --- | ---: | ---: |
+| One-time map build | 0 | 170,000 tokens |
+| One follow-up task | 70,000 tokens | 35,000 tokens |
+| Map refresh after a task | 0 | 5,000 tokens |
+| **Total for 10 tasks** | **700,000** | **570,000** |
+
+**Model result: 130,000 fewer tokens, a saving of 18.6%.
+The one-time cost breaks even on task 6.**
+
+In the source JSON, this scenario is called `illustrative_mid`. It sits between
+the unfavorable and optimistic preset examples, but it is not an average or a
+typical user result.
+
+<p align="center">
+  <img src="./assets/readme/economics.svg" width="100%" alt="Project Atlas illustrative open-model scenario: ten tasks use 700,000 tokens without Atlas and 570,000 with Atlas, saving 130,000 tokens or 18.6 percent, with modelled break-even on task 6; this is not a user average">
+</p>
+
+Without Atlas, repeated orientation is part of the cost of every task. Atlas
+has an expensive first payment for the map, but later work starts with a short
+context packet and a focused source check.
+
+### How to read the plus and minus signs
+
+- **−18.6%** means a saving: `700,000 → 570,000`, or `130,000` fewer tokens.
+- **−51.1%** is the best modelled scenario: `900,000 → 440,000`, or `460,000`
+  fewer tokens.
+- **+40.0%** means extra cost, not a saving: `600,000 → 840,000`, so Atlas
+  uses `240,000` more tokens. In this scenario the map is too expensive and
+  there is too little repeated work to reuse.
+
+**Atlas does not promise savings in every project.** It shows the map cost
+before work starts, keeps discovered knowledge from being bought again
+blindly, and provides an open model for deciding when the investment makes
+sense.
+
+[See every assumption, formula, and scenario](./docs/effectiveness.md)
+
+## What you can verify today
+
+### Project Atlas itself
+
+| Check | Public result |
+| --- | --- |
+| Complete loop | **1** reproducible chain: sources → map → task → patch → test → refreshed map |
+| Finding the right layer | **3 files → 1 ready task** in the shared data-writing layer used by the API and background process |
+| Verifiable change | **2-line patch → 4 verified outcomes**: two blank values rejected and two valid records saved |
+| Depth selection | **3/3** predefined modes selected correctly on synthetic projects |
+| Predefined relationships | **26/26** expected correspondences found on the same projects |
+| Real savings | **0** published paired campaigns on real repositories; the percentages above are still `MODELLED_ASSUMPTION` |
+
+[Open the complete proven loop](./docs/case-study.md)
+
+### Why the underlying problem is real
+
+- In a **2005** Microsoft study, **66%** of developers reported difficulty
+  understanding the reasons behind existing code, **62%** often switched
+  between tasks, and **61%** had difficulty learning about changes elsewhere
+  in the system.
+  [Source](https://www.microsoft.com/en-us/research/publication/software-development-at-microsoft-observed/).
+- RepoCoder improved baseline in-file completion by more than **10%** in every
+  reported setting through iterative repository-context retrieval.
+  [Study](https://arxiv.org/abs/2303.12570).
+- CodePlan, using planning and repository context, completed tasks in **5 of 7**
+  studied repositories; the baseline completed tasks in **0 of 7**.
+  [Study](https://www.microsoft.com/en-us/research/publication/codeplan-repository-level-coding-using-llms-and-planning-2/).
+- METR found an important counter-result: experienced developers using AI took
+  **19% longer** on the studied tasks. Having AI does not guarantee a speedup;
+  context and verification costs matter.
+  [Study](https://metr.org/Early_2025_AI_Experienced_OS_Devs_Study-paper.pdf).
+
+These studies support the value of context and planning in related approaches.
+They do not measure Atlas. **Still unmeasured** with real users: the exact time
+and token savings from Atlas, its context-selection precision, and its effect
+on the share of successfully completed tasks.
 
 > [!IMPORTANT]
 > Project Atlas is a community project, not an official OpenAI or Anthropic
@@ -63,21 +167,12 @@ sources before implementation.
 > service. A structurally valid map can still contain a wrong conclusion, so
 > a person must review consequential decisions.
 
-### What is proved and what is not
+<a id="five-minutes-to-your-first-run"></a>
 
-| Status | Honest answer |
-| --- | --- |
-| **Reproducible** | The validator checks map structure, allowed references, and replay commands. On three synthetic projects, depth selection matched the predeclared expected answer in `3/3` cases, and all `26/26` predefined correspondences were found. |
-| **Modelled** | An open model ranges from **+40.0% token cost** to **−51.1% tokens** over ten follow-up tasks. These are scenarios, not observed user results. |
-| **Not measured yet** | Real token and time savings, context-selection precision, and the success rate of follow-up tasks. |
+## Five minutes to your first request
 
-The first public proof of the complete work loop is the
-[end-to-end case study](./docs/case-study.md).
-
-## Five minutes to your first run
-
-The five-minute start begins after the required tools are installed and Codex
-is signed in. It is not a promise that the completed map will arrive in exactly
+The five minutes begin after the required tools are installed and Codex is
+signed in. This is not a promise that the completed map will arrive in exactly
 five minutes. Investigation time depends on the project, depth, model, and
 permissions.
 
@@ -193,23 +288,25 @@ Do not change project code.
 <details>
 <summary><strong>Short glossary before you start</strong></summary>
 
-- **Repository** — the project folder plus its change history.
-- **Project root** — the top folder of the exact code you want mapped.
-- **Plugin** — an installable extension for Codex or Claude Code.
-- **QUICK** — the short Atlas depth for a small project or first orientation.
-- **Token** — a small unit of text used to count model input and output; it is not a subscription percentage.
-- **Future task** — a work card Atlas prepared but did not implement.
-- **Worker** — code that does background work instead of answering a person directly.
-- **Fixture** — a small test project or prepared test data.
-- **Oracle** — the expected correct answer used to check a result.
-- **Task Context Packet** — the small slice of the map needed for one task. By
+- **Repository**: the project folder plus its change history.
+- **Project root**: the top folder of the exact code you want mapped.
+- **Plugin**: an installable extension for Codex or Claude Code.
+- **QUICK**: the short Atlas depth for a small project or first orientation.
+- **Token**: a small unit of text used to count model input and output; it is
+  not a subscription percentage.
+- **Future Task**: a work card Atlas prepared but did not implement.
+- **Worker**: code that does background work instead of answering a person
+  directly.
+- **Fixture**: a small test project or prepared test data.
+- **Oracle**: the expected correct answer used to check a result.
+- **Task Context Packet**: the small slice of the map needed for one task. By
   default, the agent shows it in chat; ask separately if you want a saved
   `.md` file.
-- **Non-goals** — work that is deliberately outside that task.
+- **Non-goals**: work that is deliberately outside that task.
 
 </details>
 
-## End-to-end: map → task → change
+## End-to-end example: map → task → change
 
 <p align="center">
   <img src="./assets/readme/workflow.svg" width="100%" alt="The Atlas loop: current state, evidence-backed finding, ready task, change, verification, and refreshed map">
@@ -239,9 +336,9 @@ CURRENT · CONFIRMED — the worker reaches the shared writer without that check
 CURRENT · UNKNOWN   — provider ordering after a timeout is unproved.
 ```
 
-It then creates `ATLAS-001 · TARGET · READY`: move the invariant to the shared
-layer, leave retries and administrator authority alone, and check both blank
-and valid identifiers.
+It then creates `ATLAS-001 · TARGET · READY`: move the required check to the
+shared layer, leave retries and administrator authority alone, and check both
+blank and valid identifiers.
 
 A public test applies the minimal patch only to a temporary copy of the fixture
 and proves:
@@ -253,9 +350,9 @@ valid: [('parcel-7', 'delivered', 'worker'),
         ('parcel-api', 'accepted', 'api')]
 ```
 
-The task receipt becomes `VERIFIED`; its future-task row becomes `SUPERSEDED`.
-Provider ordering remains `UNKNOWN`, so the map does not close a gap that the
-change did not investigate.
+The task receipt becomes `VERIFIED`, and its Future Task row becomes
+`SUPERSEDED`. Provider ordering remains `UNKNOWN`, so the map does not close a
+gap that the change did not investigate.
 
 [Open the complete example: sources → map → Context Packet → patch → test → refreshed map](./docs/case-study.md)
 
@@ -264,7 +361,7 @@ change did not investigate.
 · [Exact patch](./docs/case-study-artifacts/standard-service/ATLAS-001.patch)
 · [Frozen map after](./docs/case-study-artifacts/standard-service/after/PROJECT_ATLAS.md)
 
-## What to do with the map
+## What to do with the map next
 
 ### Choose one piece of work
 
@@ -272,10 +369,10 @@ In QUICK, open Future Tasks in `PROJECT_ATLAS.md`. In STANDARD or FORENSIC,
 start with `ATLAS_INDEX.md`, `LIVE_HANDOFF.md`, and Future Tasks in
 `MIGRATION_PLAN.md`.
 
-Before editing, the agent builds a small **Task Context Packet**:
+Before editing, the agent builds a short **Task Context Packet**:
 
 1. the selected task and acceptance criteria;
-2. relevant `CURRENT` claims;
+2. related `CURRENT` claims;
 3. exact source files;
 4. material `UNKNOWN` items and authority boundaries;
 5. required checks;
@@ -285,9 +382,9 @@ Before editing, the agent builds a small **Task Context Packet**:
 This keeps a large map from becoming a huge prompt. The next session receives
 only the context needed for the selected task and can see what was left out.
 
-By default, “show a Task Context Packet” means print it in chat, not create a
-new file. To carry it into another session, add: “and save it as
-`TASK_CONTEXT_<Task-ID>.md`.” The end-to-end case deliberately
+By default, "show a Task Context Packet" means print it in chat, not create a
+new file. To carry it into another session, add: "and save it as
+`TASK_CONTEXT_<Task-ID>.md`." The end-to-end example deliberately
 [saves one as a separate artifact](./docs/case-study-artifacts/standard-service/ATLAS-001-context-packet.md)
 so anyone can inspect it.
 
@@ -306,37 +403,42 @@ Do not close an UNKNOWN without new evidence.
 
 | Follow-up work | How the map helps |
 | --- | --- |
-| Fix a bug | Starts from the likely failure path, state, and related tests |
+| Fix a bug | Starts from the likely failure path, related state, and tests |
 | Add a feature | Separates affected layers from explicit non-goals |
 | Run a risky refactor | Preserves current relationships, authority, and rollback paths |
-| Hand off a project | Gives source-backed navigation instead of an old chat summary |
+| Hand off a project | Provides verifiable links instead of a retelling from an old chat |
 | Start a new AI session | Reduces repeated orientation when the map is fresh |
 
 A stale or shallow map can make work worse. That is why links are rechecked
 before the change and the map is refreshed afterwards.
 
-## What Atlas does internally
+## What happens inside Atlas
 
-1. **BOUND** — define the project root, exclusions, product purpose, and cost of error.
-2. **FORECAST** — show minimum, typical, and maximum model-token estimates before each deep block.
-3. **DISCOVER** — find runtime roots, flows, state, authority, tests, and external boundaries.
-4. **CLASSIFY** — separate facts, inferences, hypotheses, targets, and unknowns.
-5. **ALIGN** — show the candidate map to the owner and ask only questions that can still change the map or backlog.
-6. **DELIVER** — create the map, Future Tasks, handoff, and structural validation result.
+1. **BOUND**: define the project root, exclusions, product purpose, and cost of
+   error.
+2. **FORECAST**: before each large block, show the minimum, typical, and maximum
+   model-token estimates.
+3. **DISCOVER**: find runtime roots, flows, state, authority, tests, and
+   external boundaries.
+4. **CLASSIFY**: separate facts, inferences, hypotheses, targets, and unknowns.
+5. **ALIGN**: show the candidate map to the owner and ask only questions that
+   can still change the map or Future Tasks.
+6. **DELIVER**: create the map, Future Tasks, handoff, and structural
+   validation result.
 
-There is no fixed total question count. Atlas asks small batches while another
-answer can still change scope, risk, product direction, or a future task. Every
-question shows four visible choices; the fourth is “Other — I will write it.”
+There is no fixed question count. Atlas asks small batches while another answer
+can still change scope, risk, product direction, or a Future Task. Every
+question shows four visible choices; the fourth is "Other: I will write it."
 
 Answer states remain distinct:
 
-- `UNAVAILABLE` — the user does not know;
-- `SKIPPED` — the user deliberately skipped;
-- `STOP_USER` — the user stopped the survey;
-- `UNKNOWN:<stable-id>` — a material gap remains open.
+- `UNAVAILABLE`: the user does not know;
+- `SKIPPED`: the user deliberately skipped;
+- `STOP_USER`: the user stopped the survey;
+- `UNKNOWN:<stable-id>`: a material gap remains open.
 
-Owner answers have `USER_INPUT` provenance. They can confirm intent, but cannot
-turn a technical guess about current code into `CONFIRMED`.
+Owner answers have `USER_INPUT` provenance. They can confirm intent, but they
+cannot turn a technical guess about current code into `CONFIRMED`.
 
 ## Three depth levels
 
@@ -344,7 +446,7 @@ turn a technical guess about current code into `CONFIRMED`.
 | --- | --- | --- |
 | `QUICK` | A small project or first orientation | One `PROJECT_ATLAS.md` |
 | `STANDARD` | A live application, service, or library | A routed current-state and target-state atlas |
-| `FORENSIC` | A critical, old, confusing, or sensitive system | Complete registries, coverage denominators, source snapshot, and independent challenge |
+| `FORENSIC` | A critical, old, confusing, or sensitive system | Complete registries, coverage denominators, a source snapshot, and independent challenge |
 
 Repository size does not select depth by itself. Cost of error, live data,
 runtime count, state stores, automated decisions, and authority matter more.
@@ -375,7 +477,7 @@ invented subscription-limit percentage.
 Checked against official documentation on **2026-07-27**. This is a starting
 point, not an Atlas benchmark:
 
-| Depth | Codex — primary adapter | Claude Code — additional adapter |
+| Depth | Codex (primary adapter) | Claude Code (additional adapter) |
 | --- | --- | --- |
 | `QUICK` | GPT-5.6 Terra, `medium` | `sonnet`, `high` |
 | `STANDARD` | GPT-5.6 Sol, `high` | `opus`, `high` |
@@ -386,78 +488,105 @@ quality-and-cost balance, and `medium` as a balanced starting point. Raise to
 `high`, `xhigh`, or `max` only when evaluation shows a benefit.
 
 In Claude Code, `best` uses Fable 5 when the organization has access and
-otherwise selects the latest Opus. The `opus` alias depends on provider. It
-currently selects Opus 5 on the Anthropic API and Claude Platform on AWS; Opus
-5 requires Claude Code 2.1.219+. Claude Code 2.1.207 selected Opus 4.8, so Atlas
-records the alias, provider, effective model, and Claude Code version.
+otherwise selects the latest Opus. The `opus` alias depends on the provider.
+It currently selects Opus 5 on the Anthropic API and Claude Platform on AWS;
+Opus 5 requires Claude Code 2.1.219+. Claude Code 2.1.207 selected Opus 4.8,
+so Atlas records the alias, provider, effective model, and Claude Code version.
 
 `ultracode` is a session-only Claude Code setting, not an Atlas depth. It
 combines `xhigh` with dynamic workflows. The `--effort ultracode` form requires
-Claude Code 2.1.203+. Use it only for a hard bounded block inside an explicitly
+Claude Code 2.1.203+. Use it only for a hard, bounded block inside an explicitly
 accepted budget. `ultrathink` deepens one turn without changing API effort.
 Codex remains the primary adapter.
 
 Sources:
-[OpenAI — Using GPT-5.6](https://developers.openai.com/api/docs/guides/latest-model),
-[Claude Code — model configuration](https://code.claude.com/docs/en/model-config),
-[Anthropic — model and effort](https://claude.com/blog/claude-model-and-effort-level-in-claude-code),
-[Anthropic — dynamic workflows](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code).
+[OpenAI: Using GPT-5.6](https://developers.openai.com/api/docs/guides/latest-model),
+[Claude Code: model configuration](https://code.claude.com/docs/en/model-config),
+[Anthropic: model and effort](https://claude.com/blog/claude-model-and-effort-level-in-claude-code),
+[Anthropic: dynamic workflows](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code).
 
 ## Effectiveness without marketing math
 
-Atlas does not yet have a published paired campaign on real downstream tasks.
-No modelled percentage below is presented as an observed result.
+The large figures at the top of this page come from an open model. They are not
+observed results. Here is the complete token calculation:
 
-### Open model for ten follow-up tasks
+| Scenario, 10 tasks | Map cost | One task without Atlas | One task after the map, including refresh | Total without → with Atlas | Result | Break-even |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Unfavorable · `MODELLED_ASSUMPTION` | 300k | 60k | 54k | 600k → 840k | **+40.0% cost** | Task 50 |
+| Illustrative · `MODELLED_ASSUMPTION` | 170k | 70k | 40k | 700k → 570k | **18.6% saving** | Task 6 |
+| Optimistic · `MODELLED_ASSUMPTION` | 120k | 90k | 32k | 900k → 440k | **51.1% saving** | Task 3 |
 
-| Scenario | Tokens | Time | Acceptance pass | Break-even |
-| --- | ---: | ---: | ---: | ---: |
-| Pessimistic · `MODELLED_ASSUMPTION` | cost **+40.0%** | cost **+88.0%** | `70% → 68%` | 50 tasks by tokens, 120 by time |
-| Illustrative middle · `MODELLED_ASSUMPTION` | saving **18.6%** | saving **6.7%** | `70% → 76%` | 6 tasks by tokens, 9 by time |
-| Optimistic · `MODELLED_ASSUMPTION` | saving **51.1%** | saving **51.2%** | `70% → 82%` | 3 tasks by tokens, 3 by time |
+The illustrative row says two different things:
+
+- after the map is built, the modelled cost of each follow-up task falls from
+  `70k` to `40k`, a reduction of **42.9%**;
+- first, the `170k` spent on the map has to be recovered, so net savings begin
+  on task 6.
+
+This is why the unfavorable scenario shows `+40.0%`. Repeated work gets only
+`6k` cheaper per task, while the map costs `300k`. After ten tasks, it has not
+recovered that cost. On task 50, both sides reach `3,000k`.
+
+Time is modelled separately:
+
+| Scenario, 10 tasks | Map cost | One task without Atlas | One task after the map | Total without → with Atlas | Result | Break-even |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Unfavorable | 240 min | 25 min | 23 min | 250 → 470 min | **+88.0% cost** | Task 120 |
+| Illustrative | 120 min | 30 min | 16 min | 300 → 280 min | **6.7% saving** | Task 9 |
+| Optimistic | 75 min | 40 min | 12 min | 400 → 195 min | **51.2% saving** | Task 3 |
+
+The formula is:
+
+```text
+Without Atlas = number of tasks × full cost of one task
+
+With Atlas = initial map cost
+             + number of tasks × (work with prepared context + map refresh)
+```
 
 Inputs are in
-[`benchmarks/data/modelled/v0.1.0.json`](./benchmarks/data/modelled/v0.1.0.json);
-formula output is in
+[`benchmarks/data/modelled/v0.1.0.json`](./benchmarks/data/modelled/v0.1.0.json),
+and the calculated results are in
 [`modelled-v0.1.0.json`](./benchmarks/data/derived/modelled-v0.1.0.json).
-Anyone can replace the assumptions with their own.
+Anyone can replace the assumptions with their own and rerun the calculation.
 
-Break-even exists only when per-task savings are positive. At zero or negative
-savings, the calculator returns `null`: break-even is not reached in that
-model. With a zero baseline, relative improvement also returns `null`, not
-infinity or an invented percentage.
+Break-even is defined only when per-task savings are positive. At zero or
+negative savings, the calculator returns `null`: break-even is not reached in
+that model. With a zero baseline, relative improvement also returns `null`,
+not infinity or an invented percentage.
 
-Related research shows that preselected useful context can sometimes reduce
-tokens and improve outcomes, while a repository graph can improve outcomes
-with **higher** token cost. That is `EXTERNAL_EVIDENCE`, not an Atlas result.
-Sources and arithmetic:
-[`benchmarks/EXTERNAL_EVIDENCE.md`](./benchmarks/EXTERNAL_EVIDENCE.md).
+Atlas does not yet have a published paired campaign on real tasks.
+No percentage above is described as a measured result.
 
-## Benefits, costs, and boundaries
+[All scenarios, a plain-language explanation, and external research](./docs/effectiveness.md)
+· [Technical benchmark contract](./benchmarks/README.md)
+· [External evidence registry](./benchmarks/EXTERNAL_EVIDENCE.md)
 
-| Benefits | Costs and risks |
+## Pros, cons, and boundaries
+
+| Pros | Cons |
 | --- | --- |
-| Source-backed navigation instead of confident summaries | Initial mapping consumes tokens and time |
-| Ready tasks with scope and acceptance | A stale or wrong map can misdirect later work |
-| Portable context between agents and sessions | Dynamic code and external systems can hide relationships |
+| Verifiable links instead of a confident retelling | Initial investigation uses tokens and time |
+| Ready tasks with scope and acceptance criteria | A wrong or stale map can send later work in the wrong direction |
+| Portability across sessions and agents | Dynamic code and external services can hide relationships |
 | Explicit UNKNOWN items instead of filled gaps | The validator checks structure, not absolute truth |
 
-Atlas is most useful before a refactor, migration, handoff, authority/data
-audit, or a series of future changes. A small clear script with a good README
-often does not need it.
+Atlas is especially useful before a refactor, migration, project handoff,
+authority or data audit, or a series of future changes. A small, clear script
+with a good README often does not need it.
 
 Safety rules:
 
 - do not read or publish secrets, keys, or real production exports;
-- mapping permission is not permission to change code, data, infrastructure, or production;
-- expand reading only after a bounded safe inventory;
-- independently challenge high-impact claims;
+- mapping permission is not permission to change code, data, or production;
+- expand reading only after a bounded, safe inventory;
+- independently recheck high-risk conclusions;
 - refresh the map after material changes.
 
 [SECURITY.md](./SECURITY.md) ·
 [Evidence model](./core/skill/map-project/references/evidence-model.md)
 
-## Technical deep dive
+## Technical reference
 
 The normative contract is not duplicated in this README. It lives under
 `core/`; these documents explain and index it:
@@ -471,7 +600,7 @@ The normative contract is not duplicated in this README. It lives under
 - [Adapters, models, and installation](./docs/adapters.md)
 - [End-to-end case study](./docs/case-study.md)
 
-The canonical protocol stays host-independent:
+The canonical protocol is host-independent:
 
 ```text
 core/                 evidence, workflow, safety, and outputs
@@ -480,7 +609,7 @@ adapters/claude-code/ first additional package
 ```
 
 <details>
-<summary><strong>Claude Code, direct install, update, and removal</strong></summary>
+<summary><strong>Claude Code, direct installation, updates, and removal</strong></summary>
 
 Claude Code:
 
@@ -489,9 +618,9 @@ claude plugin marketplace add ddenny-s/project-atlas
 claude plugin install project-atlas@project-atlas
 ```
 
-Invoke with `/project-atlas:map-project`.
+Invoke it with `/project-atlas:map-project`.
 
-Direct install on macOS or Linux:
+Direct installation on macOS or Linux:
 
 ```bash
 git clone https://github.com/ddenny-s/project-atlas.git
@@ -503,7 +632,7 @@ cd project-atlas
 
 Direct invocation: `$map-project` for Codex, `/map-project` for Claude Code.
 
-Update a direct install:
+Update a direct installation:
 
 ```bash
 git pull --ff-only

@@ -4,7 +4,7 @@
 
 This is the third layer of the public documentation. Start with the
 [30-second explanation](../README.md#30-seconds) or
-[five-minute first run](../README.md#five-minutes-to-your-first-run) if you do
+[five-minute first request](../README.md#five-minutes-to-your-first-request) if you do
 not need the protocol details yet.
 
 ## Source-of-truth map
@@ -19,7 +19,7 @@ not need the protocol details yet.
 | How to invoke representative workflows | [`examples.md`](./examples.md) |
 | How a map becomes a verified code change | [`case-study.md`](./case-study.md) |
 | What may be read, written, or published | [`SECURITY.md`](../SECURITY.md) |
-| What the benchmark can and cannot claim | [`benchmarks/`](../benchmarks/) |
+| What the benchmark can and cannot claim | [Effectiveness and benchmark](./effectiveness.md) |
 
 `core/PROTOCOL.md` is normative. Documentation explains it; adapters translate
 host discovery and permissions. Neither adapter may redefine evidence labels,

@@ -1,5 +1,7 @@
 # Output Contract
 
+[English](./outputs.md) · [Русский](./outputs.ru.md)
+
 Project Atlas creates the smallest document set that can preserve evidence, route readers, and support the selected depth. Output files belong to the user and are never silently replaced.
 
 Substantive-content checks are Unicode-aware: non-ASCII letters and numbers count as substantive, while whitespace and punctuation alone do not.

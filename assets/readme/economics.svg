@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="760" viewBox="0 0 1200 760"
+     role="img" aria-labelledby="title desc">
+  <title id="title">Project Atlas economics in the illustrative open scenario</title>
+  <desc id="desc">Ten tasks without Atlas use 700 thousand tokens. With Atlas, they use 570 thousand: 170 thousand for the map and 400 thousand for the tasks and map refreshes. The modelled saving is 130 thousand tokens, or 18.6 percent, and starts on task six.</desc>
+
+  <rect width="1200" height="760" rx="20" fill="#0A0C0F"/>
+  <rect x="1" y="1" width="1198" height="758" rx="19"
+        fill="none" stroke="#343A43" stroke-width="2"/>
+
+  <g font-family="Arial, sans-serif">
+    <text x="60" y="56" fill="#8D98A6" font-size="20" font-weight="700"
+          letter-spacing="2">HOW THE SAVINGS ARE CALCULATED</text>
+    <text x="1140" y="56" fill="#5EA8FF" font-size="20" font-weight="700"
+          text-anchor="end">ILLUSTRATIVE SCENARIO</text>
+    <path d="M60 84H1140" stroke="#343A43" stroke-width="2"/>
+
+    <text x="60" y="154" fill="#F4F6F8" font-size="56" font-weight="700"
+          letter-spacing="-1.5">700k → 570k</text>
+    <text x="1140" y="150" fill="#7EE6B1" font-size="42" font-weight="700"
+          text-anchor="end" letter-spacing="-1">−130k · −18.6%</text>
+    <text x="60" y="194" fill="#8D98A6" font-size="20" font-weight="600">
+      CUMULATIVE TOKEN USE ACROSS 10 CONSECUTIVE TASKS
+    </text>
+    <path d="M60 222H1140" stroke="#343A43" stroke-width="2"/>
+
+    <g>
+      <text x="60" y="284" fill="#F4F6F8" font-size="24" font-weight="700">WITHOUT ATLAS</text>
+      <text x="60" y="316" fill="#8D98A6" font-size="20" font-weight="600">70k × 10 tasks</text>
+      <rect x="300" y="252" width="800" height="82" rx="10" fill="#343A43"/>
+      <text x="324" y="304" fill="#F4F6F8" font-size="24" font-weight="700">
+        700k · REPEATED DISCOVERY + WORK
+      </text>
+    </g>
+
+    <g>
+      <text x="60" y="402" fill="#F4F6F8" font-size="24" font-weight="700">WITH ATLAS</text>
+      <text x="60" y="434" fill="#8D98A6" font-size="20" font-weight="600">map + 10 tasks</text>
+
+      <rect x="300" y="370" width="194" height="82" rx="10" fill="#5EA8FF"/>
+      <text x="397" y="404" fill="#08111C" font-size="24" font-weight="700"
+            text-anchor="middle">170k</text>
+      <text x="397" y="434" fill="#08111C" font-size="20" font-weight="700"
+            text-anchor="middle">MAP</text>
+
+      <path d="M504 370H941Q951 370 951 380V442Q951 452 941 452H504Z"
+            fill="#1F6FAF"/>
+      <text x="722" y="404" fill="#F4F6F8" font-size="24" font-weight="700"
+            text-anchor="middle">400k</text>
+      <text x="722" y="434" fill="#F4F6F8" font-size="20" font-weight="700"
+            text-anchor="middle">TASKS + REFRESH</text>
+
+      <rect x="961" y="370" width="139" height="82" rx="10"
+            fill="none" stroke="#7EE6B1" stroke-width="2" stroke-dasharray="8 7"/>
+      <text x="1030" y="404" fill="#7EE6B1" font-size="24" font-weight="700"
+            text-anchor="middle">−130k</text>
+      <text x="1030" y="434" fill="#7EE6B1" font-size="20" font-weight="700"
+            text-anchor="middle">SAVED</text>
+    </g>
+
+    <path d="M60 500H1140" stroke="#343A43" stroke-width="2"/>
+    <text x="60" y="554" fill="#F4F6F8" font-size="34" font-weight="700"
+          letter-spacing="-.5">PAYBACK STARTS ON TASK 6</text>
+    <text x="60" y="590" fill="#8D98A6" font-size="20" font-weight="600">
+      Tasks 1–5: the map earns back its cost · tasks 6–10: net modelled savings begin
+    </text>
+
+    <path d="M80 638H1115" stroke="#343A43" stroke-width="4"/>
+    <path d="M655 638H1115" stroke="#7EE6B1" stroke-width="4"/>
+    <g fill="#343A43">
+      <circle cx="80" cy="638" r="9"/>
+      <circle cx="195" cy="638" r="9"/>
+      <circle cx="310" cy="638" r="9"/>
+      <circle cx="425" cy="638" r="9"/>
+      <circle cx="540" cy="638" r="9"/>
+    </g>
+    <g fill="#7EE6B1">
+      <circle cx="655" cy="638" r="14"/>
+      <circle cx="770" cy="638" r="9"/>
+      <circle cx="885" cy="638" r="9"/>
+      <circle cx="1000" cy="638" r="9"/>
+      <circle cx="1115" cy="638" r="9"/>
+    </g>
+    <g fill="#8D98A6" font-size="20" font-weight="700" text-anchor="middle">
+      <text x="80" y="678">1</text>
+      <text x="195" y="678">2</text>
+      <text x="310" y="678">3</text>
+      <text x="425" y="678">4</text>
+      <text x="540" y="678">5</text>
+    </g>
+    <g fill="#7EE6B1" font-size="20" font-weight="700" text-anchor="middle">
+      <text x="655" y="678">6</text>
+      <text x="770" y="678">7</text>
+      <text x="885" y="678">8</text>
+      <text x="1000" y="678">9</text>
+      <text x="1115" y="678">10</text>
+    </g>
+
+    <path d="M60 708H1140" stroke="#343A43" stroke-width="2"/>
+    <circle cx="71" cy="734" r="6" fill="#F2C66D"/>
+    <text x="92" y="741" fill="#C7CED8" font-size="20" font-weight="700"
+          letter-spacing=".8">OPEN MODEL · NOT A FIELD MEASUREMENT</text>
+    <text x="1140" y="741" fill="#8D98A6" font-size="20" font-weight="600"
+          text-anchor="end">170k + 400k = 570k</text>
+  </g>
+</svg>
