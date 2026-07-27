@@ -22,6 +22,7 @@ Initialization refuses to overwrite an existing output. Refresh reads the curren
 
 Every atlas states:
 
+- START alignment before deep work and FINISH alignment against the candidate map;
 - project and investigated scope;
 - selected depth and selection rationale;
 - source snapshot and observation time;
@@ -30,6 +31,8 @@ Every atlas states:
 - current-state facts separately from target proposals;
 - validation commands and their exact result status;
 - open unknowns and proof limitations;
+- per-block model-token forecasts and exact-or-unmeasured telemetry;
+- a traceable future-task backlog that mapping does not implement;
 - next safe action and continuation instructions.
 
 Material facts use `CONFIRMED`, `INFERENCE`, `HYPOTHESIS`, `TARGET`, or `UNKNOWN` as defined in the [methodology](methodology.md).
@@ -38,26 +41,57 @@ Material facts use `CONFIRMED`, `INFERENCE`, `HYPOTHESIS`, `TARGET`, or `UNKNOWN
 
 `PROJECT_ATLAS.md` contains:
 
-1. Scope and depth rationale with exactly one `Selected by`, `Conflicting automatic signals`, `Intentionally omitted coverage`, and `Escalation condition` field.
-2. Observation time or source/worktree snapshot.
-3. Product purpose and user outcome.
-4. Start or invocation path.
-5. Main inputs, outputs, dependencies, and state.
-6. Exclusions and evidence-class legend.
-7. Verification command, proof limits, and exact result.
-8. Risks, unknowns, and next safe action.
-9. Project-relative source references.
+1. Start Alignment with its question table and batch ledger.
+2. Scope and depth rationale with exactly one `Selected by`, `Conflicting automatic signals`, `Intentionally omitted coverage`, and `Escalation condition` field.
+3. Observation time or source/worktree snapshot.
+4. Product purpose and user outcome.
+5. Start or invocation path.
+6. Main inputs, outputs, dependencies, and state.
+7. Exclusions and evidence-class legend.
+8. Verification command, proof limits, and exact result.
+9. Risks, unknowns, and next safe action.
+10. Project-relative source references.
+11. Finish Alignment against the final candidate map.
+12. Run Economics with PRE and POST rows.
+13. Future Tasks with at least one READY or honest BLOCKED row.
 
 QUICK stays in one file unless the user explicitly requests a different arrangement.
 
 Completion requires substantive project evidence rather than generated scaffold language or `UNKNOWN`. The four depth-decision fields appear exactly once and contain substantive values rather than empty or bare sentinel answers. `Observed at` is a real UTC timestamp, the snapshot is concrete, the legend defines all five evidence classes, and verification records one exact bounded `rg --no-config` command against explicit safe-inventory targets, its proof boundary, integer exit code, observed result, and standard-output SHA-256. A directory target or multiple targets require exact `--sort path`. The validator replays that command from the project root and compares the real exit code and digest. At least one source reference resolves to a project-relative source location. This deterministic check is a lower bound; semantic review is still required to decide whether the prose and cited source support each other.
+
+## Alignment, economics, and future-task records
+
+START and FINISH questions are adaptive, one to three per batch, with no total cap. Every visible question has exactly four choices; D is exactly `Другое — напишу сам`. Unknown, skip, and user stop are separate controls. If a picker cannot preserve that shape, the adapter uses plain chat. FINISH runs after the candidate map; a map-changing answer requires an update and another FINISH pass.
+
+The canonical question and batch schemas are:
+
+```text
+Question ID | Batch ID | Topic | Question | Option A | Option B | Option C | Option D | Selected | Free-form note | Answer state | Map effect | Provenance | Answered at
+Batch ID | Sequence | Question IDs | Remaining material gaps | Decision | Decision provenance | Status
+```
+
+Run Economics uses:
+
+```text
+Run ID | Block ID | Entry | Block | Unit | Min | Typical | Max | Basis | Model tier and effort | Input | Output | Reasoning | Total | Telemetry | Variance vs typical | Recorded at | Status
+```
+
+PRE is an integer `MODEL_TOKENS` forecast made before each deep block. POST contains only exact host telemetry or `UNMEASURED`. The PRE maximum is a reforecast threshold, not a hard cap. Weekly usage appears only when the host supplies that exact signal; model tokens never become quota percentages.
+
+Future Tasks uses:
+
+```text
+Task ID | Claim kind | Priority | Outcome | Basis | Affected areas | Scope | Non-goals | Acceptance criteria | Dependencies and unknowns | Risks | Verification | Status
+```
+
+Every task is `TARGET`, and mapping never implements it. Both `READY` and `BLOCKED` rows need substantive, non-draft `Outcome`, `Basis`, `Affected areas`, `Scope`, `Non-goals`, `Acceptance criteria`, `Dependencies and unknowns`, `Risks`, and `Verification` values. Both also need a technical `Basis`: a safe project-relative source or a visible, unique, non-interaction Atlas section with substantive content referenced as `MAP:<atlas-file>#<stable-anchor>`. `READY` additionally needs an active, non-dangling `USER_INPUT:<Question ID>` in `Basis`. `BLOCKED` may omit only that owner input; it still needs the same technical basis and canonical `UNKNOWN:<stable-id>` in `Dependencies and unknowns`. If it cites `USER_INPUT`, that reference must still be active and non-dangling. Any justified number of tasks is allowed, with at least one `READY` or `BLOCKED` row at completion. Detailed enums and provenance rules live in the [canonical interaction reference](../core/skill/map-project/references/user-interaction-and-budget.md).
 
 ## STANDARD and FORENSIC artifacts
 
 | Artifact | STANDARD | FORENSIC | Purpose |
 | --- | --- | --- | --- |
 | `ATLAS_INDEX.md` | Required | Required | Canonical entrypoint, scope, depth, status, routing, and freshness |
-| `PRODUCT_AND_REQUIREMENTS.md` | Required | Required | Users, outcomes, scenarios, requirements, and conflicts |
+| `PRODUCT_AND_REQUIREMENTS.md` | Required | Required | Start alignment, users, outcomes, scenarios, requirements, and conflicts |
 | `CURRENT_ARCHITECTURE.md` | Required | Required | Current components, ownership, dependencies, and runtime relationships |
 | `RUNTIME_AND_ENTRYPOINTS.md` | Required | Required | Runtime roots, startup, shutdown, triggers, configuration, and effects |
 | `DATA_STATE_AND_AUTHORITY.md` | Required | Required | Stores, state objects, readers, writers, lifecycle, authority, and conflicts |
@@ -65,11 +99,11 @@ Completion requires substantive project evidence rather than generated scaffold 
 | `QUALITY_SECURITY_AND_OPERATIONS.md` | Required | Required | Test proof, security, privacy, reliability, observability, recovery, and cost |
 | `FINDINGS_AND_DISPOSITIONS.md` | Required | Required | Findings, severity, evidence, and keep/rewrite/merge/delete decisions |
 | `TARGET_ARCHITECTURE.md` | Required | Required | Proposed future architecture, rationale, alternatives, and constraints |
-| `MIGRATION_PLAN.md` | Required | Required | Ordered changes, compatibility, verification, rollback, and decision gates |
+| `MIGRATION_PLAN.md` | Required | Required | Ordered changes, future tasks, compatibility, verification, rollback, and decision gates |
 | `TRACEABILITY.tsv` | Recommended when claims are numerous | Required | Machine-checkable claim-to-source and claim-to-output ledger |
 | `SOURCE_SNAPSHOT.json` | Not required | Required for completion | Strict digest of the safe path manifest, active file-like and command-target evidence population, and traceability state |
 | `OPEN_UNKNOWNS.md` | Required | Required | Material unanswered questions and resolving checks |
-| `LIVE_HANDOFF.md` | Required | Required | Resume state, last checks, active risks, and next bounded actions |
+| `LIVE_HANDOFF.md` | Required | Required | Finish alignment, run economics, resume state, last checks, active risks, and next bounded actions |
 
 For STANDARD and FORENSIC, `ATLAS_INDEX.md` `Scope and Coverage` owns the same four single-value depth-decision fields. They are not duplicated in `LIVE_HANDOFF.md`.
 
@@ -108,6 +142,8 @@ ID | Claim kind | Requirement | Source | Status
 ```
 
 Future controls use `TARGET`; missing current evidence uses `UNKNOWN`.
+
+The same artifact owns `Start Alignment`. Owner answers are `USER_INPUT` provenance and can support direction, scope, and TARGET claims, never technical current-state facts.
 
 ### `CURRENT_ARCHITECTURE.md`
 
@@ -161,6 +197,14 @@ FORENSIC uses the same table with an explicit claim kind:
 Stage | Claim kind | Change | Preconditions | Compatibility and state/data handling | Primary signal | Secondary signals | Decision authority | Rollback | Status
 ```
 
+`Future Tasks` is a separate registry in the same artifact, not a migration authorization:
+
+```text
+Task ID | Claim kind | Priority | Outcome | Basis | Affected areas | Scope | Non-goals | Acceptance criteria | Dependencies and unknowns | Risks | Verification | Status
+```
+
+The same `READY`/`BLOCKED` matrix above applies here. In particular, a `BLOCKED` row is not valid without a safe technical source or visible, unique, non-interaction, substantive map basis.
+
 ### `TRACEABILITY.tsv`
 
 Use tab-separated rows with a stable header. The canonical fields are:
@@ -183,15 +227,18 @@ Requirements:
 
 ```text
 PRODUCT_AND_REQUIREMENTS.md#requirements/<ID>
+PRODUCT_AND_REQUIREMENTS.md#direction/<Question ID>
 FINDINGS_AND_DISPOSITIONS.md#findings/<ID>/finding
 FINDINGS_AND_DISPOSITIONS.md#findings/<ID>/disposition
 MIGRATION_PLAN.md#migration/<Stage>
+MIGRATION_PLAN.md#future-tasks/<Task ID>
 ATLAS_INDEX.md#coverage/<ID>
 OPEN_UNKNOWNS.md#unknowns/<ID>
+LIVE_HANDOFF.md#direction/<Question ID>
 LIVE_HANDOFF.md#reviews/<ID>
 ```
 
-At FORENSIC completion, every canonical material claim has an `ACTIVE` or `CURRENT` trace row with an exact claim-kind and claim-text match. Matching `fact_id` values, stale rows, or prose links are insufficient. Each finding produces two claims: the finding text itself and `Disposition <ID>: <DISPOSITION>`; the disposition is `TARGET` unless it remains `UNKNOWN`.
+At FORENSIC completion, every canonical material claim has an `ACTIVE` or `CURRENT` trace row with an exact claim-kind and claim-text match. Matching `fact_id` values, stale rows, or prose links are insufficient. Each finding produces two claims: the finding text itself and `Disposition <ID>: <DISPOSITION>`; the disposition is `TARGET` unless it remains `UNKNOWN`. Active answered direction claims use exact text `<Question>: <Selected option>` and active future tasks use exact `Outcome`; both are `TARGET`.
 
 Trace status is exactly `ACTIVE`, `CURRENT`, `STALE`, or `SUPERSEDED`. `UNRESOLVED` evidence is compatible only with `UNKNOWN`; it cannot support a current fact, inference, hypothesis, or target. `observed_at` is a real `YYYY-MM-DD` calendar date or `YYYY-MM-DDTHH:MM:SSZ` UTC timestamp. Review references and non-review references cannot be mixed in one ledger row. Only compatible completion-active rows count toward registry coverage.
 
@@ -213,6 +260,7 @@ The handoff includes:
 
 - snapshot and worktree state observed at the last checkpoint;
 - selected mode, scope, exclusions, and output root;
+- final owner alignment and per-block run economics;
 - completed contours and current coverage;
 - exact last validation commands and outcomes;
 - active hypotheses and unresolved high-risk unknowns;

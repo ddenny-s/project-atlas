@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1200" height="2020" viewBox="0 0 1200 2020"
+     role="img" aria-labelledby="title desc">
+  <title id="title">Три расчётных сценария эффективности Project Atlas</title>
+  <desc id="desc">Сценарии MODELLED_ASSUMPTION рассчитаны 26 июля 2026 года на десять следующих задач после создания карты. Знаменатель — те же десять задач без Atlas, качество — доля задач, прошедших приёмку. Плохой сценарий увеличивает расход токенов на 40 процентов, иллюстративный средний экономит 18,6 процента, оптимистичный экономит 51,1 процента. Допущения лежат в benchmarks/data/modelled/v0.1.0.json. Это не измеренный результат Atlas.</desc>
+
+  <rect width="1200" height="2020" rx="26" fill="#071018"/>
+  <rect x="1.5" y="1.5" width="1197" height="2017" rx="24.5"
+        fill="none" stroke="#36576A" stroke-width="3"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="54" y="72" fill="#F8FAFC" font-size="52" font-weight="780">
+      Что может дать карта за 10 задач
+    </text>
+    <text x="54" y="124" fill="#FCD34D" font-size="40" font-weight="720">
+      MODELLED_ASSUMPTION · РАСЧЁТ 2026-07-26
+    </text>
+
+    <rect x="54" y="158" width="1092" height="220" rx="16"
+          fill="#111B24" stroke="#416B7F" stroke-width="2"/>
+    <text x="84" y="210" fill="#DCE8EF" font-size="42" font-weight="650">
+      Горизонт: 10 задач после создания карты
+    </text>
+    <text x="84" y="260" fill="#DCE8EF" font-size="42" font-weight="650">
+      Знаменатель: те же 10 задач без Atlas
+    </text>
+    <text x="84" y="310" fill="#DCE8EF" font-size="42" font-weight="650">
+      Качество: доля задач, прошедших приёмку
+    </text>
+    <text x="84" y="354" fill="#AFC1CB" font-size="40" font-weight="650">
+      Исходные 70% и все изменения ниже — допущения
+    </text>
+
+    <g id="pessimistic">
+      <rect x="54" y="410" width="1092" height="390" rx="20"
+            fill="#21171A" stroke="#9F5661" stroke-width="3"/>
+      <text x="84" y="464" fill="#FDA4AF" font-size="42" font-weight="800">
+        ПЛОХОЙ СЦЕНАРИЙ
+      </text>
+      <text x="84" y="536" fill="#F8FAFC" font-size="46" font-weight="800">
+        Токены: расход +40,0%
+      </text>
+      <text x="84" y="596" fill="#F8FAFC" font-size="46" font-weight="800">
+        Время: расход +88,0%
+      </text>
+      <text x="84" y="656" fill="#F8FAFC" font-size="46" font-weight="800">
+        Приёмка: −2 п.п. (−2,9% отн.)
+      </text>
+      <text x="84" y="716" fill="#C6D2D9" font-size="42" font-weight="650">
+        Окупаемость: 50 задач по токенам
+      </text>
+      <text x="84" y="764" fill="#C6D2D9" font-size="42" font-weight="650">
+        120 задач по времени
+      </text>
+    </g>
+
+    <g id="illustrative-mid">
+      <rect x="54" y="830" width="1092" height="440" rx="20"
+            fill="#102532" stroke="#67E8F9" stroke-width="4"/>
+      <text x="84" y="884" fill="#67E8F9" font-size="42" font-weight="800">
+        ИЛЛЮСТРАТИВНЫЙ
+      </text>
+      <text x="84" y="932" fill="#67E8F9" font-size="42" font-weight="800">
+        СРЕДНИЙ СЦЕНАРИЙ
+      </text>
+      <text x="84" y="1004" fill="#F8FAFC" font-size="46" font-weight="800">
+        Токены: экономия 18,6%
+      </text>
+      <text x="84" y="1064" fill="#F8FAFC" font-size="46" font-weight="800">
+        Время: экономия 6,7%
+      </text>
+      <text x="84" y="1124" fill="#F8FAFC" font-size="46" font-weight="800">
+        Приёмка: +6 п.п. (+8,6% отн.)
+      </text>
+      <text x="84" y="1184" fill="#C6D2D9" font-size="42" font-weight="650">
+        Окупаемость: 6 задач по токенам
+      </text>
+      <text x="84" y="1232" fill="#C6D2D9" font-size="42" font-weight="650">
+        9 задач по времени
+      </text>
+    </g>
+
+    <g id="optimistic">
+      <rect x="54" y="1300" width="1092" height="390" rx="20"
+            fill="#10231D" stroke="#4FAE78" stroke-width="3"/>
+      <text x="84" y="1354" fill="#86EFAC" font-size="42" font-weight="800">
+        ОПТИМИСТИЧНЫЙ СЦЕНАРИЙ
+      </text>
+      <text x="84" y="1426" fill="#F8FAFC" font-size="46" font-weight="800">
+        Токены: экономия 51,1%
+      </text>
+      <text x="84" y="1486" fill="#F8FAFC" font-size="46" font-weight="800">
+        Время: экономия 51,2%
+      </text>
+      <text x="84" y="1546" fill="#F8FAFC" font-size="46" font-weight="800">
+        Приёмка: +12 п.п. (+17,1% отн.)
+      </text>
+      <text x="84" y="1606" fill="#C6D2D9" font-size="42" font-weight="650">
+        Окупаемость: 3 задачи по токенам
+      </text>
+      <text x="84" y="1654" fill="#C6D2D9" font-size="42" font-weight="650">
+        3 задачи по времени
+      </text>
+    </g>
+
+    <rect x="54" y="1720" width="1092" height="256" rx="16"
+          fill="#111B24" stroke="#416B7F" stroke-width="2"/>
+    <text x="84" y="1772" fill="#FCD34D" font-size="40" font-weight="720">
+      MODELLED_ASSUMPTION · НЕ ЗАМЕР ATLAS
+    </text>
+    <text x="84" y="1822" fill="#AFC1CB" font-size="40" font-weight="650">
+      Включено: создание + использование + обновления.
+    </text>
+    <text x="84" y="1872" fill="#AFC1CB" font-size="40" font-weight="650">
+      Источники открываются под картинкой:
+    </text>
+    <text x="84" y="1922" fill="#DCE8EF" font-size="40" font-weight="700">
+      допущения · формулы и рассчитанный результат
+    </text>
+  </g>
+</svg>

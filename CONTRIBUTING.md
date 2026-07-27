@@ -28,7 +28,8 @@ An adapter may translate invocation, discovery, manifest, and host-permission de
 2. Add or update a failing test for behavior changes when the existing test framework can express the case.
 3. Make the smallest coherent change in the owning layer.
 4. If core behavior changed, update both adapters and their conformance coverage.
-5. Update English and Russian documentation when public behavior changes.
+5. Update and review the primary Russian documentation first. Publish or refresh
+   an English translation only after the corresponding Russian copy is approved.
 6. Run the relevant checks and inspect the generated artifacts.
 7. Submit a pull request that explains the behavior, evidence, risk, and validation.
 

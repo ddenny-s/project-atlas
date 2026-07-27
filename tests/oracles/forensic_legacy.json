@@ -34,9 +34,15 @@
     "RUNTIME_AND_ENTRYPOINTS.md": ["# Runtime and Entrypoints", "## Entry Points", "## Effects"],
     "DATA_STATE_AND_AUTHORITY.md": ["# Data, State, and Authority", "## State Writers", "## Authority"],
     "FINDINGS_AND_DISPOSITIONS.md": ["# Findings and Dispositions", "Keep", "Rewrite", "Delete"],
-    "MIGRATION_PLAN.md": ["# Migration Plan", "## Rollback"],
+    "PRODUCT_AND_REQUIREMENTS.md": ["# Product and Requirements", "## Start Alignment"],
+    "MIGRATION_PLAN.md": ["# Migration Plan", "## Rollback", "## Future Tasks"],
     "OPEN_UNKNOWNS.md": ["# Open Unknowns", "UNKNOWN"],
-    "LIVE_HANDOFF.md": ["# Live Handoff", "## Continue From Here"],
+    "LIVE_HANDOFF.md": [
+      "# Live Handoff",
+      "## Finish Alignment",
+      "## Run Economics",
+      "## Continue From Here"
+    ],
     "TRACEABILITY.tsv": [
       "fact_id\tclaim_kind\tclaim\tsource_type\tsource_ref\tobserved_at\tstatus\tatlas_refs\tnotes"
     ]

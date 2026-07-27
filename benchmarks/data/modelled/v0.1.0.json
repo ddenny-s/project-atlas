@@ -1,0 +1,53 @@
+{
+  "as_of": "2026-07-26",
+  "caveat": "These are planning scenarios, not measured Project Atlas productivity. Replace them with paired provider-reported runs before claiming observed ROI.",
+  "classification": "MODELLED_ASSUMPTION",
+  "horizons": [
+    5,
+    10,
+    25,
+    50
+  ],
+  "scenarios": [
+    {
+      "atlas_build_minutes": 240,
+      "atlas_build_tokens": 300000,
+      "atlas_contract_pass_percent": 68,
+      "atlas_use_minutes_per_task": 20,
+      "atlas_use_tokens_per_task": 48000,
+      "baseline_contract_pass_percent": 70,
+      "baseline_minutes_per_task": 25,
+      "baseline_tokens_per_task": 60000,
+      "id": "pessimistic",
+      "refresh_minutes_per_task": 3,
+      "refresh_tokens_per_task": 6000
+    },
+    {
+      "atlas_build_minutes": 120,
+      "atlas_build_tokens": 170000,
+      "atlas_contract_pass_percent": 76,
+      "atlas_use_minutes_per_task": 14,
+      "atlas_use_tokens_per_task": 35000,
+      "baseline_contract_pass_percent": 70,
+      "baseline_minutes_per_task": 30,
+      "baseline_tokens_per_task": 70000,
+      "id": "illustrative_mid",
+      "refresh_minutes_per_task": 2,
+      "refresh_tokens_per_task": 5000
+    },
+    {
+      "atlas_build_minutes": 75,
+      "atlas_build_tokens": 120000,
+      "atlas_contract_pass_percent": 82,
+      "atlas_use_minutes_per_task": 10,
+      "atlas_use_tokens_per_task": 28000,
+      "baseline_contract_pass_percent": 70,
+      "baseline_minutes_per_task": 40,
+      "baseline_tokens_per_task": 90000,
+      "id": "optimistic",
+      "refresh_minutes_per_task": 2,
+      "refresh_tokens_per_task": 4000
+    }
+  ],
+  "schema_version": "0.1"
+}

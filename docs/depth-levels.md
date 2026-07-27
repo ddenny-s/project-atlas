@@ -22,6 +22,8 @@ Repository size can increase cost, but it does not determine depth by itself. A 
 
 Automatic selection keeps tests, fixtures, templates, examples, and nested documentation in the safe inventory, but does not treat their vocabulary as product topology or high-impact product risk. Semantic risk signals come from bounded root project-declaration paragraphs or explicit operator inputs. Compound FORENSIC reasons require their evidence to occur in the same declaration unit; a storage transaction mentioned in one paragraph cannot combine with unrelated legacy compatibility text in another. Byte-identical packaged adapter Skill copies may collapse into their canonical core signal, while unrelated identical services remain separate runtimes.
 
+Depth changes investigation coverage, not the owner-question cap. Every mode completes START alignment before deep work and FINISH alignment after its candidate map. Questions remain adaptive in one-to-three-question batches until the next answer cannot materially change scope, authority, mode, claim interpretation, output, or backlog. Every deep block also receives a PRE model-token forecast and an exact-or-`UNMEASURED` POST record.
+
 ## QUICK
 
 Use QUICK for a small, low-risk, one-purpose project or for initial orientation when no consequential decision depends on complete coverage.
@@ -29,6 +31,7 @@ Use QUICK for a small, low-risk, one-purpose project or for initial orientation 
 Required result:
 
 - one `PROJECT_ATLAS.md`;
+- START and FINISH alignment records;
 - purpose, user, and observable outcome;
 - launch or invocation path;
 - primary inputs, outputs, state, and dependencies;
@@ -36,7 +39,8 @@ Required result:
 - scope and depth rationale, observation time or snapshot, exclusions, and an evidence legend;
 - known risks, explicit unknowns, project-relative references, and the next safe action;
 - the exact result of the documented validation command;
-- source references for material claims.
+- source references for material claims;
+- run economics and at least one traceable READY or honest BLOCKED future task.
 
 QUICK deliberately avoids a large document tree, exhaustive registries, speculative target architecture, and broad full-repository reading. It can still identify a trigger that warrants STANDARD or FORENSIC.
 
@@ -58,6 +62,8 @@ Required coverage:
 - security, reliability, observability, and operational findings;
 - current findings and dispositions;
 - target architecture and staged migration plan;
+- traceable future tasks that are not automatically implemented;
+- START alignment in product requirements and FINISH alignment plus run economics in handoff;
 - open unknowns, routed index, and live handoff.
 
 STANDARD uses multiple documents when that improves routing. It does not require exhaustive enumeration of every file or low-impact helper.
@@ -81,6 +87,7 @@ FORENSIC includes all STANDARD requirements plus:
 - source snapshots and reproducible commands;
 - disposition for every material contour;
 - independent challenge of high-impact claims;
+- final owner direction and future-task claims bound before snapshot and review;
 - safe multi-session continuation.
 
 FORENSIC passes only when every material boundary in the declared population is confirmed or explicitly listed as `UNKNOWN`, coverage calculations name their denominator, and independent review finds no unresolved critical or important correctness gap in the atlas itself.

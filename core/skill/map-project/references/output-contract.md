@@ -4,7 +4,7 @@ Substantive-content checks are Unicode-aware: non-ASCII letters and numbers coun
 
 ## QUICK
 
-Create only `PROJECT_ATLAS.md`. Completion requires substantive content in every required section, one structured depth-decision record in `Scope and Depth Rationale`, a real observation timestamp and concrete source snapshot, the complete five-kind evidence legend, one bounded deterministic `rg --no-config` command against explicit safe-inventory targets and proof boundary, an integer exit code, observed result, standard-output SHA-256, and at least one project-relative source location. A directory target or multiple targets require exact `--sort path`. Validation replays the command from the project root and compares the exit code and digest. Generic prose, fabricated command evidence, and unchanged scaffold content do not pass.
+Create only `PROJECT_ATLAS.md`. It owns `Start Alignment`, `Finish Alignment`, `Run Economics`, and `Future Tasks`. Completion requires substantive content in every required section, one structured depth-decision record in `Scope and Depth Rationale`, a real observation timestamp and concrete source snapshot, the complete five-kind evidence legend, one bounded deterministic `rg --no-config` command against explicit safe-inventory targets and proof boundary, an integer exit code, observed result, standard-output SHA-256, and at least one project-relative source location. A directory target or multiple targets require exact `--sort path`. Validation replays the command from the project root and compares the exit code and digest. Generic prose, fabricated command evidence, and unchanged scaffold content do not pass.
 
 ## STANDARD
 
@@ -23,7 +23,7 @@ Create:
 - `OPEN_UNKNOWNS.md`
 - `LIVE_HANDOFF.md`
 
-Use `ATLAS_INDEX.md` as the router. Its `Scope and Coverage` section contains the structured depth-decision record. Keep current state, target state, migration, and unknowns distinct. Link documents using relative paths.
+Use `ATLAS_INDEX.md` as the router. Its `Scope and Coverage` section contains the structured depth-decision record. `PRODUCT_AND_REQUIREMENTS.md` owns `Start Alignment`, `LIVE_HANDOFF.md` owns `Finish Alignment` and `Run Economics`, and `MIGRATION_PLAN.md` owns `Future Tasks`. Keep current state, target state, migration, and unknowns distinct. Link documents using relative paths.
 
 Completion requires every canonical section heading. A heading may have one unambiguous descriptive extension, but it may not disappear or compete with a duplicate. Static contract text may remain canonical; dynamic sections must replace initialized draft prose and empty tables. Every current-material `CONFIRMED`, `INFERENCE`, or `HYPOTHESIS` requirement/finding row has a valid project-relative source in its `Source` or `Evidence` cell.
 
@@ -34,6 +34,16 @@ Create the STANDARD set plus `TRACEABILITY.tsv` and the generated `SOURCE_SNAPSH
 ## Rerun behavior
 
 Treat every existing file as user-owned. Initialization may add a missing required file but must not replace or merge into an existing file. Refresh work must read the existing document, recheck affected evidence, and make a deliberate narrow edit.
+
+If refreshed evidence changes the candidate map after `FINISH_ALIGNMENT`, supersede affected finish records, update the map and future tasks, and repeat the finish loop. In FORENSIC mode, do not reuse the old snapshot or reviews after such a change.
+
+## Interaction, economics, and future-task registries
+
+Each `Start Alignment` and `Finish Alignment` section contains exactly one Question table and one Batch ledger using the exact schemas in [user-interaction-and-budget.md](user-interaction-and-budget.md). Questions are adaptive, every visible question has exactly four options, and D is exactly `Другое — напишу сам`. Completion has no active batch and one final stop decision.
+
+Each `Run Economics` section uses the canonical eighteen-column table. PRE rows contain ordered integer `MODEL_TOKENS` ranges and forecast assumptions. POST rows contain only exact host telemetry or `UNMEASURED`. Token counts never become quota percentages.
+
+Each `Future Tasks` section uses the canonical thirteen-column table. Claim kind is always `TARGET`; status is `READY`, `BLOCKED`, `SUPERSEDED`, or `REJECTED`. Every active `READY` or `BLOCKED` row has substantive, non-draft `Outcome`, `Basis`, `Affected areas`, `Scope`, `Non-goals`, `Acceptance criteria`, `Dependencies and unknowns`, `Risks`, and `Verification` values. Both statuses need a safe project-relative source or a visible, unique, non-interaction, substantive `MAP:<atlas-file>#<stable-anchor>` in `Basis`. `READY` additionally needs an active, non-dangling `USER_INPUT:<Question ID>` in `Basis`. `BLOCKED` may omit only that owner input; it still needs the same technical basis and canonical `UNKNOWN:<stable-id>` in `Dependencies and unknowns`. Any cited `USER_INPUT` must be active and non-dangling. Completion contains at least one traceable READY task or one honest BLOCKED task. No task is implementation authorization.
 
 ## Required registries
 
@@ -51,7 +61,7 @@ Every FORENSIC unknown is a row under `## Open Unknowns` with `ID`, `UNKNOWN`, `
 
 Every FORENSIC independent review is a row under `## Independent Reviews` in `LIVE_HANDOFF.md` with `ID`, `Review kind`, `Reviewer ref`, `Independence`, `Reviewed snapshot`, `Verdict`, `Critical`, `Important`, `Retained evidence summary`, `Remaining limits`, `Reviewed at`, and `Status`. Completion requires exactly one completion-active `CORRECTNESS` and one completion-active `SECURITY` row with distinct reviewers; both use `PASS`, `0` Critical, `0` Important, substantive summaries and limits, and the current `review_input.sha256`. UTC review times cannot predate the latest bound evidence, exceed its seven-day freshness window, or be more than five minutes ahead of the validating host clock. A bound review remains valid while its content-addressed input remains unchanged; wall-clock age alone does not invalidate it. These are retained attestations; the host, not the deterministic validator, authenticates actual reviewer separation and semantic entailment.
 
-All material FORENSIC registry claims require exact `ACTIVE` or `CURRENT` coverage from the canonical `atlas_refs` field in `TRACEABILITY.tsv`. Registry IDs do not implicitly link rows. Requirements, migration stages, coverage claims, unknowns, review summaries, and both the finding and its disposition have separately addressable references.
+All material FORENSIC registry claims require exact `ACTIVE` or `CURRENT` coverage from the canonical `atlas_refs` field in `TRACEABILITY.tsv`. Registry IDs do not implicitly link rows. Owner directions, requirements, migration stages, future tasks, coverage claims, unknowns, review summaries, and both the finding and its disposition have separately addressable references. Direction claims use `PRODUCT_AND_REQUIREMENTS.md#direction/<Question ID>` or `LIVE_HANDOFF.md#direction/<Question ID>` and exact text `<Question>: <Selected option>`. Future tasks use `MIGRATION_PLAN.md#future-tasks/<Task ID>` and exact claim text equal to `Outcome`; both are `TARGET`.
 
 ## Handoff
 
@@ -60,6 +70,7 @@ Record:
 - declared mode and scope;
 - completed and excluded contours;
 - evidence freshness and snapshot digest;
+- final owner alignment and run economics;
 - unresolved unknowns and risks;
 - the exact next bounded action;
 - commands needed to reproduce validation;

@@ -144,21 +144,6 @@ while [[ "$ancestor" != "/" ]]; do
   fi
 done
 
-is_source_repository_path() {
-  local candidate="$1"
-  local repository_root
-  for repository_root in "${source_repository_roots[@]}"; do
-    if [[
-      "$repository_root" == "/" ||
-      "$candidate" == "$repository_root" ||
-      "$candidate" == "$repository_root/"*
-    ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
-
 if [[ -x /usr/bin/stat ]]; then
   trusted_stat=/usr/bin/stat
 elif [[ -x /bin/stat ]]; then
@@ -179,21 +164,117 @@ fi
 stat_owner_and_mode() {
   local target="$1"
   local output
-  if output="$("$trusted_stat" -f '%u %Lp' -- "$target" 2>/dev/null)"; then
+  if output="$("$trusted_stat" -f '%u %g %Lp' -- "$target" 2>/dev/null)"; then
     :
-  elif output="$("$trusted_stat" -c '%u %a' -- "$target" 2>/dev/null)"; then
+  elif output="$("$trusted_stat" -c '%u %g %a' -- "$target" 2>/dev/null)"; then
     :
   else
     return 1
   fi
-  builtin read -r stat_owner stat_mode stat_extra <<<"$output"
+  builtin read -r stat_owner stat_group stat_mode stat_extra <<<"$output"
   [[
     -n "${stat_owner:-}" &&
+    -n "${stat_group:-}" &&
     -n "${stat_mode:-}" &&
     -z "${stat_extra:-}" &&
     "$stat_owner" =~ ^[0-9]+$ &&
+    "$stat_group" =~ ^[0-9]+$ &&
     "$stat_mode" =~ ^[0-7]+$
   ]]
+}
+
+is_process_group() {
+  local candidate="$1"
+  local process_group
+  for process_group in "${GROUPS[@]}"; do
+    if [[ "$candidate" == "$process_group" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_trusted_homebrew_cellar_directory() {
+  local candidate="$1"
+  local owner="$2"
+  local group="$3"
+  local mode_value="$4"
+  case "$candidate" in
+    /opt/homebrew/Cellar | \
+    /usr/local/Cellar | \
+    /home/linuxbrew/.linuxbrew/Cellar)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  [[ "$owner" == "0" || "$owner" == "$EUID" ]] &&
+    is_process_group "$group" &&
+    ((mode_value & 0020)) &&
+    ! ((mode_value & 0002))
+}
+
+stat_identity() {
+  local target="$1"
+  local output
+  if output="$("$trusted_stat" -f '%d %i' -- "$target" 2>/dev/null)"; then
+    :
+  elif output="$("$trusted_stat" -c '%d %i' -- "$target" 2>/dev/null)"; then
+    :
+  else
+    return 1
+  fi
+  builtin read -r stat_device stat_inode stat_extra <<<"$output"
+  [[
+    -n "${stat_device:-}" &&
+    -n "${stat_inode:-}" &&
+    -z "${stat_extra:-}" &&
+    "$stat_device" =~ ^[0-9]+$ &&
+    "$stat_inode" =~ ^[0-9]+$
+  ]]
+}
+
+source_repository_identities=()
+for repository_root in "${source_repository_roots[@]}"; do
+  if ! stat_identity "$repository_root"; then
+    builtin printf '%s: unable to identify installer source repository\n' "$command_name" >&2
+    exit 1
+  fi
+  source_repository_identities+=("$stat_device:$stat_inode")
+done
+
+is_source_repository_path() {
+  local candidate="$1"
+  local current
+  local current_identity
+  local current_name
+  local current_parent
+  local repository_identity
+  if [[ "$candidate" != /* ]]; then
+    current_name="${candidate##*/}"
+    current_parent="${candidate%/*}"
+    [[ "$current_parent" == "$candidate" ]] && current_parent="."
+    if ! current_parent="$(physical_directory "$current_parent")"; then
+      return 2
+    fi
+    candidate="$current_parent/$current_name"
+  fi
+  current="$candidate"
+  while :; do
+    if ! stat_identity "$current"; then
+      return 2
+    fi
+    current_identity="$stat_device:$stat_inode"
+    for repository_identity in "${source_repository_identities[@]}"; do
+      if [[ "$current_identity" == "$repository_identity" ]]; then
+        return 0
+      fi
+    done
+    [[ "$current" == "/" ]] && break
+    current="${current%/*}"
+    [[ -n "$current" ]] || current="/"
+  done
+  return 1
 }
 
 resolve_executable_path() {
@@ -242,15 +323,26 @@ if ! python_executable="$(resolve_executable_path "$python_candidate")"; then
   builtin printf '%s: external python3 executable is unsafe\n' "$command_name" >&2
   exit 1
 fi
+if is_source_repository_path "$python_candidate"; then
+  python_candidate_source_status=0
+else
+  python_candidate_source_status=$?
+fi
+if is_source_repository_path "$python_executable"; then
+  python_executable_source_status=0
+else
+  python_executable_source_status=$?
+fi
 if [[ ! -f "$python_executable" || ! -x "$python_executable" ]] || \
-  is_source_repository_path "$python_candidate" || \
-  is_source_repository_path "$python_executable" || \
+  ((python_candidate_source_status != 1)) || \
+  ((python_executable_source_status != 1)) || \
   ! stat_owner_and_mode "$python_executable"; then
   builtin printf '%s: external python3 executable is unsafe\n' "$command_name" >&2
   exit 1
 fi
 python_mode_value=$((8#$stat_mode))
-if ((python_mode_value & 0002)); then
+if [[ "$stat_owner" != "0" && "$stat_owner" != "$EUID" ]] || \
+  ((python_mode_value & 0022)); then
   builtin printf '%s: external python3 executable is unsafe\n' "$command_name" >&2
   exit 1
 fi
@@ -261,6 +353,12 @@ while :; do
     exit 1
   fi
   python_parent_mode=$((8#$stat_mode))
+  if ((python_parent_mode & 0020)) && \
+    ! is_trusted_homebrew_cellar_directory \
+      "$python_parent" "$stat_owner" "$stat_group" "$python_parent_mode"; then
+    builtin printf '%s: external python3 executable is unsafe\n' "$command_name" >&2
+    exit 1
+  fi
   if ((python_parent_mode & 0002)) && ! ((python_parent_mode & 01000)); then
     builtin printf '%s: external python3 executable is unsafe\n' "$command_name" >&2
     exit 1
@@ -276,6 +374,7 @@ from __future__ import annotations
 import ctypes
 from contextlib import contextmanager
 import hashlib
+import json
 import os
 import secrets
 import shutil
@@ -300,6 +399,7 @@ inherited_source_fd = int(sys.argv[6])
 host_label = "Claude Code" if installer_host == "claude-code" else "Codex"
 target_name = "map-project"
 lock_name = ".map-project.install.lock"
+INSTALL_MARKER_NAME = ".project-atlas-install-owner.json"
 MAX_PACKAGE_FILES = 2_048
 MAX_PACKAGE_DIRECTORIES = 512
 MAX_PACKAGE_DEPTH = 32
@@ -313,6 +413,41 @@ class InstallFailure(RuntimeError):
     pass
 
 
+def stat_identity(path: Path) -> tuple[int, int]:
+    metadata = path.stat()
+    return metadata.st_dev, metadata.st_ino
+
+
+def has_ancestor_identity(
+    path: Path,
+    expected_identities: set[tuple[int, int]],
+) -> bool:
+    return any(
+        stat_identity(ancestor) in expected_identities
+        for ancestor in (path, *path.parents)
+    )
+
+
+def is_trusted_homebrew_cellar_directory(
+    directory: Path,
+    metadata: os.stat_result,
+    trusted_owners: set[int],
+    process_groups: set[int],
+) -> bool:
+    return (
+        directory
+        in {
+            Path("/opt/homebrew/Cellar"),
+            Path("/usr/local/Cellar"),
+            Path("/home/linuxbrew/.linuxbrew/Cellar"),
+        }
+        and getattr(metadata, "st_uid", None) in trusted_owners
+        and getattr(metadata, "st_gid", None) in process_groups
+        and bool(metadata.st_mode & stat.S_IWGRP)
+        and not metadata.st_mode & stat.S_IWOTH
+    )
+
+
 def trusted_external_executable(name: str) -> str:
     """Resolve a host tool while rejecting executables supplied by a source repository."""
 
@@ -320,11 +455,23 @@ def trusted_external_executable(name: str) -> str:
     if candidate is None:
         raise InstallFailure(f"required external {name} executable is unavailable")
     try:
+        candidate_path = Path(os.path.abspath(candidate))
         executable = Path(candidate).resolve(strict=True)
         package_root = Path(source_skill).parents[3].resolve(strict=True)
         metadata = executable.stat()
     except (IndexError, OSError):
         raise InstallFailure(f"external {name} executable is unsafe") from None
+    effective_uid_getter = getattr(os, "geteuid", None)
+    trusted_owners = {0}
+    if callable(effective_uid_getter):
+        trusted_owners.add(effective_uid_getter())
+    try:
+        process_groups = set(os.getgroups())
+    except OSError:
+        raise InstallFailure(f"external {name} executable is unsafe") from None
+    effective_gid_getter = getattr(os, "getegid", None)
+    if callable(effective_gid_getter):
+        process_groups.add(effective_gid_getter())
     repository_roots = {package_root}
     for ancestor in package_root.parents:
         try:
@@ -334,22 +481,39 @@ def trusted_external_executable(name: str) -> str:
         except OSError:
             raise InstallFailure(f"external {name} executable is unsafe") from None
         repository_roots.add(ancestor)
-    if (
-        any(
-            executable == repository_root or repository_root in executable.parents
-            for repository_root in repository_roots
+    try:
+        repository_identities = {stat_identity(root) for root in repository_roots}
+        supplied_by_source_repository = any(
+            has_ancestor_identity(path, repository_identities)
+            for path in (candidate_path, executable)
         )
+    except OSError:
+        raise InstallFailure(f"external {name} executable is unsafe") from None
+    if (
+        supplied_by_source_repository
         or not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_mode & stat.S_IWOTH
+        or getattr(metadata, "st_uid", None) not in trusted_owners
+        or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
         or not os.access(executable, os.X_OK)
     ):
         raise InstallFailure(f"external {name} executable is unsafe")
     for directory in executable.parents:
         try:
-            directory_mode = directory.stat().st_mode
+            directory_metadata = directory.stat()
         except OSError:
             raise InstallFailure(f"external {name} executable is unsafe") from None
-        if directory_mode & stat.S_IWOTH and not directory_mode & stat.S_ISVTX:
+        directory_mode = directory_metadata.st_mode
+        trusted_group_writable_cellar = is_trusted_homebrew_cellar_directory(
+            directory,
+            directory_metadata,
+            trusted_owners,
+            process_groups,
+        )
+        if directory_mode & stat.S_IWGRP and not trusted_group_writable_cellar:
+            raise InstallFailure(f"external {name} executable is unsafe")
+        if (
+            directory_mode & stat.S_IWOTH and not directory_mode & stat.S_ISVTX
+        ):
             raise InstallFailure(f"external {name} executable is unsafe")
     return os.fspath(executable)
 
@@ -496,6 +660,191 @@ def fd_identity(fd: int) -> tuple[int, int]:
     return metadata.st_dev, metadata.st_ino
 
 
+def ownership_marker_payload(transaction_nonce: str, role: str) -> bytes:
+    return (
+        json.dumps(
+            {
+                "nonce": transaction_nonce,
+                "role": role,
+                "version": 1,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def create_ownership_marker(
+    directory_fd: int,
+    payload: bytes,
+) -> tuple[bytes, tuple[int, int]]:
+    marker_fd: int | None = None
+    try:
+        marker_fd = os.open(
+            INSTALL_MARKER_NAME,
+            destination_file_flags,
+            0o600,
+            dir_fd=directory_fd,
+        )
+        opened = os.fstat(marker_fd)
+        marker_identity = (opened.st_dev, opened.st_ino)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or stat.S_IMODE(opened.st_mode) != 0o600
+        ):
+            raise InstallFailure("installer ownership marker is not a unique private file")
+        view = memoryview(payload)
+        while view:
+            written = os.write(marker_fd, view)
+            if written <= 0:
+                raise InstallFailure("installer ownership marker write made no progress")
+            view = view[written:]
+        os.fchmod(marker_fd, 0o600)
+        final = os.fstat(marker_fd)
+        if (
+            (final.st_dev, final.st_ino) != marker_identity
+            or final.st_nlink != 1
+            or stat.S_IMODE(final.st_mode) != 0o600
+            or final.st_size != len(payload)
+        ):
+            raise InstallFailure("installer ownership marker failed write verification")
+    except OSError as exc:
+        raise InstallFailure("unable to create installer ownership marker") from exc
+    finally:
+        if marker_fd is not None:
+            os.close(marker_fd)
+    proof = (payload, marker_identity)
+    verify_ownership_marker(directory_fd, proof, "created installer directory")
+    return proof
+
+
+def open_verified_ownership_marker(
+    directory_fd: int,
+    proof: tuple[bytes, tuple[int, int]],
+    label: str,
+) -> int:
+    payload, expected_identity = proof
+    marker_fd: int | None = None
+    try:
+        path_metadata = os.stat(
+            INSTALL_MARKER_NAME,
+            dir_fd=directory_fd,
+            follow_symlinks=False,
+        )
+        if (
+            (path_metadata.st_dev, path_metadata.st_ino) != expected_identity
+            or not stat.S_ISREG(path_metadata.st_mode)
+            or path_metadata.st_nlink != 1
+            or stat.S_IMODE(path_metadata.st_mode) != 0o600
+            or path_metadata.st_size != len(payload)
+        ):
+            raise InstallFailure(f"{label} ownership marker changed")
+        marker_fd = os.open(
+            INSTALL_MARKER_NAME,
+            regular_file_flags,
+            dir_fd=directory_fd,
+        )
+        opened = os.fstat(marker_fd)
+        if (
+            (opened.st_dev, opened.st_ino) != expected_identity
+            or opened.st_nlink != 1
+            or stat.S_IMODE(opened.st_mode) != 0o600
+            or opened.st_size != len(payload)
+        ):
+            raise InstallFailure(f"{label} ownership marker changed before it was read")
+        chunks: list[bytes] = []
+        remaining = len(payload)
+        while remaining:
+            chunk = os.read(marker_fd, remaining)
+            if not chunk:
+                raise InstallFailure(f"{label} ownership marker was truncated")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        if os.read(marker_fd, 1):
+            raise InstallFailure(f"{label} ownership marker grew while it was read")
+        current = os.stat(
+            INSTALL_MARKER_NAME,
+            dir_fd=directory_fd,
+            follow_symlinks=False,
+        )
+        if (
+            (current.st_dev, current.st_ino) != expected_identity
+            or current.st_nlink != 1
+        ):
+            raise InstallFailure(f"{label} ownership marker changed while it was read")
+        if b"".join(chunks) != payload:
+            raise InstallFailure(f"{label} ownership marker nonce changed")
+        result = marker_fd
+        marker_fd = None
+        return result
+    except FileNotFoundError:
+        raise InstallFailure(f"{label} ownership marker is missing") from None
+    except OSError as exc:
+        raise InstallFailure(f"{label} ownership marker could not be verified") from exc
+    finally:
+        if marker_fd is not None:
+            os.close(marker_fd)
+
+
+def verify_ownership_marker(
+    directory_fd: int,
+    proof: tuple[bytes, tuple[int, int]],
+    label: str,
+) -> None:
+    marker_fd = open_verified_ownership_marker(directory_fd, proof, label)
+    os.close(marker_fd)
+
+
+def remove_ownership_marker(
+    directory_fd: int,
+    proof: tuple[bytes, tuple[int, int]],
+    label: str,
+) -> None:
+    marker_fd = open_verified_ownership_marker(directory_fd, proof, label)
+    try:
+        os.unlink(INSTALL_MARKER_NAME, dir_fd=directory_fd)
+        if entry_identity(directory_fd, INSTALL_MARKER_NAME) is not None:
+            raise InstallFailure(f"{label} ownership marker removal was not stable")
+    except OSError as exc:
+        raise InstallFailure(f"{label} ownership marker could not be removed") from exc
+    finally:
+        os.close(marker_fd)
+
+
+def verify_owned_directory(
+    parent_fd: int,
+    name: str,
+    expected: tuple[int, int],
+    *,
+    label: str,
+    marker_proof: tuple[bytes, tuple[int, int]] | None = None,
+    payload_manifest: dict[tuple[str, ...], tuple[str, int, int, str]] | None = None,
+) -> None:
+    if (marker_proof is None) == (payload_manifest is None):
+        raise InstallFailure(f"{label} has incomplete or ambiguous ownership proof")
+    try:
+        directory_fd = os.open(name, directory_flags, dir_fd=parent_fd)
+    except OSError as exc:
+        raise InstallFailure(f"{label} could not be opened for ownership verification") from exc
+    try:
+        if fd_identity(directory_fd) != expected:
+            raise InstallFailure(f"{label} identity changed")
+        if marker_proof is not None:
+            verify_ownership_marker(directory_fd, marker_proof, label)
+        else:
+            assert payload_manifest is not None
+            if descriptor_tree_manifest(directory_fd, label) != payload_manifest:
+                raise InstallFailure(f"{label} payload digest changed")
+        if fd_identity(directory_fd) != expected:
+            raise InstallFailure(f"{label} identity changed during ownership verification")
+        if entry_identity(parent_fd, name) != expected:
+            raise InstallFailure(f"{label} path changed during ownership verification")
+    finally:
+        os.close(directory_fd)
+
+
 def parent_is_mutable_by_current_user(parent_fd: int) -> bool:
     metadata = os.fstat(parent_fd)
     mode = metadata.st_mode
@@ -628,20 +977,53 @@ def move_owned_noreplace(
     expected: tuple[int, int],
     *,
     label: str,
+    marker_proof: tuple[bytes, tuple[int, int]] | None = None,
+    payload_manifest: dict[tuple[str, ...], tuple[str, int, int, str]] | None = None,
     barrier: str | None = None,
     after_move_test_point: str | None = None,
 ) -> None:
     """Move only the captured source object, restoring a raced replacement."""
-    if entry_identity(source_fd, source) != expected:
-        raise InstallFailure(f"{label} source changed before the atomic move")
+    verify_owned_directory(
+        source_fd,
+        source,
+        expected,
+        label=f"{label} source",
+        marker_proof=marker_proof,
+        payload_manifest=payload_manifest,
+    )
     if barrier is not None:
         wait_at_test_barrier(barrier)
     rename_noreplace(source_fd, source, destination_fd, destination)
     moved = entry_identity(destination_fd, destination)
     if moved == expected:
-        if after_move_test_point is not None:
-            reach_after_move_test_point(after_move_test_point)
-        return
+        try:
+            verify_owned_directory(
+                destination_fd,
+                destination,
+                expected,
+                label=f"{label} destination",
+                marker_proof=marker_proof,
+                payload_manifest=payload_manifest,
+            )
+        except InstallFailure as proof_error:
+            try:
+                rename_noreplace(destination_fd, destination, source_fd, source)
+            except OSError as restore_error:
+                raise InstallFailure(
+                    f"{label} ownership proof changed during the atomic move; "
+                    f"the moved object remains preserved at {destination}"
+                ) from restore_error
+            if entry_identity(source_fd, source) != moved:
+                raise InstallFailure(
+                    f"{label} restored object changed identity at {source}"
+                ) from proof_error
+            raise InstallFailure(
+                f"{label} ownership proof changed during the atomic move"
+            ) from proof_error
+        else:
+            if after_move_test_point is not None:
+                reach_after_move_test_point(after_move_test_point)
+            return
     if moved is not None and entry_identity(source_fd, source) is None:
         try:
             rename_noreplace(destination_fd, destination, source_fd, source)
@@ -671,16 +1053,75 @@ def make_unique_directory(parent_fd: int, prefix: str) -> tuple[str, tuple[int, 
     raise InstallFailure(f"unable to reserve a unique directory under {prefix}")
 
 
-def remove_owned_entry(parent_fd: int, name: str, owned: tuple[int, int]) -> bool:
-    if entry_identity(parent_fd, name) != owned:
+def remove_owned_entry(
+    parent_fd: int,
+    name: str,
+    owned: tuple[int, int],
+    marker_proof: tuple[bytes, tuple[int, int]],
+) -> bool:
+    try:
+        verify_owned_directory(
+            parent_fd,
+            name,
+            owned,
+            label=f"cleanup entry {name}",
+            marker_proof=marker_proof,
+        )
+    except InstallFailure:
         return False
     wait_at_test_barrier("CLEANUP_BEFORE_QUARANTINE")
+    try:
+        verify_owned_directory(
+            parent_fd,
+            name,
+            owned,
+            label=f"cleanup entry {name}",
+            marker_proof=marker_proof,
+        )
+    except InstallFailure:
+        return False
+
     for _attempt in range(128):
         quarantine = f".map-project.cleanup-{secrets.token_hex(12)}"
         try:
             rename_noreplace(parent_fd, name, parent_fd, quarantine)
         except FileExistsError:
             continue
+
+        def restore_verified_quarantine() -> bool:
+            if entry_identity(parent_fd, quarantine) != owned:
+                return False
+            try:
+                rename_noreplace(parent_fd, quarantine, parent_fd, name)
+            except OSError:
+                return False
+            return entry_identity(parent_fd, name) == owned
+
+        try:
+            verify_owned_directory(
+                parent_fd,
+                quarantine,
+                owned,
+                label=f"quarantined cleanup entry {name}",
+                marker_proof=marker_proof,
+            )
+        except InstallFailure:
+            restore_verified_quarantine()
+            return False
+
+        wait_at_test_barrier("CLEANUP_REMOVE")
+        try:
+            verify_owned_directory(
+                parent_fd,
+                quarantine,
+                owned,
+                label=f"quarantined cleanup entry {name}",
+                marker_proof=marker_proof,
+            )
+        except InstallFailure:
+            restore_verified_quarantine()
+            return False
+
         try:
             quarantine_fd = os.open(quarantine, directory_flags, dir_fd=parent_fd)
         except OSError:
@@ -690,55 +1131,58 @@ def remove_owned_entry(parent_fd: int, name: str, owned: tuple[int, int]) -> boo
                 file=sys.stderr,
             )
             return False
+        marker_fd: int | None = None
         try:
             if fd_identity(quarantine_fd) != owned:
-                moved_identity = fd_identity(quarantine_fd)
-                try:
-                    rename_noreplace(parent_fd, quarantine, parent_fd, name)
-                except FileExistsError:
-                    print(
-                        f"{command_name}: cleanup preserved a foreign entry at: "
-                        f"{os.path.join(installation_root, 'skills', quarantine)}",
-                        file=sys.stderr,
-                    )
-                    return False
-                except OSError:
-                    print(
-                        f"{command_name}: cleanup could not restore a foreign entry; "
-                        f"it remains recoverable at: "
-                        f"{os.path.join(installation_root, 'skills', quarantine)}",
-                        file=sys.stderr,
-                    )
-                    return False
-                if entry_identity(parent_fd, name) != moved_identity:
-                    print(
-                        f"{command_name}: restored cleanup entry changed identity at: "
-                        f"{os.path.join(installation_root, 'skills', name)}",
-                        file=sys.stderr,
-                    )
-                return False
-            wait_at_test_barrier("CLEANUP_REMOVE")
-
-            def preserve_open_root(function: object, path: str, error: tuple[object, object, object]) -> None:
-                if function is os.rmdir and path == ".":
-                    return
-                exception = error[1]
-                if isinstance(exception, BaseException):
-                    raise exception
-                raise InstallFailure("unable to remove owned cleanup contents")
-
-            try:
-                shutil.rmtree(".", dir_fd=quarantine_fd, onerror=preserve_open_root)
-            except OSError:
-                return False
-            if entry_identity(parent_fd, quarantine) != owned:
                 return False
             try:
-                os.rmdir(quarantine, dir_fd=parent_fd)
+                for child in tuple(os.listdir(quarantine_fd)):
+                    if child == INSTALL_MARKER_NAME:
+                        continue
+                    details = os.stat(
+                        child,
+                        dir_fd=quarantine_fd,
+                        follow_symlinks=False,
+                    )
+                    if stat.S_ISDIR(details.st_mode):
+                        shutil.rmtree(child, dir_fd=quarantine_fd)
+                    elif stat.S_ISREG(details.st_mode) and details.st_nlink == 1:
+                        os.unlink(child, dir_fd=quarantine_fd)
+                    else:
+                        raise InstallFailure(
+                            "owned cleanup tree contains an unexpected filesystem node"
+                        )
+            except (OSError, InstallFailure):
+                return False
+            if (
+                fd_identity(quarantine_fd) != owned
+                or entry_identity(parent_fd, quarantine) != owned
+            ):
+                return False
+            marker_fd = open_verified_ownership_marker(
+                quarantine_fd,
+                marker_proof,
+                f"quarantined cleanup entry {name}",
+            )
+            if tuple(os.listdir(quarantine_fd)) != (INSTALL_MARKER_NAME,):
+                return False
+            try:
+                with defer_handled_signals():
+                    os.unlink(INSTALL_MARKER_NAME, dir_fd=quarantine_fd)
+                    if entry_identity(quarantine_fd, INSTALL_MARKER_NAME) is not None:
+                        return False
+                    if (
+                        fd_identity(quarantine_fd) != owned
+                        or entry_identity(parent_fd, quarantine) != owned
+                    ):
+                        return False
+                    os.rmdir(quarantine, dir_fd=parent_fd)
             except OSError:
                 return False
             return entry_identity(parent_fd, quarantine) is None
         finally:
+            if marker_fd is not None:
+                os.close(marker_fd)
             os.close(quarantine_fd)
     return False
 
@@ -1257,8 +1701,15 @@ lock_identity: tuple[int, int] | None = None
 stage_identity: tuple[int, int] | None = None
 promoted_identity: tuple[int, int] | None = None
 backup_identity: tuple[int, int] | None = None
+lock_marker_proof: tuple[bytes, tuple[int, int]] | None = None
+stage_marker_proof: tuple[bytes, tuple[int, int]] | None = None
+target_marker_proof: tuple[bytes, tuple[int, int]] | None = None
+backup_payload_manifest: dict[tuple[str, ...], tuple[str, int, int, str]] | None = None
+expected_manifest: dict[tuple[str, ...], tuple[str, int, int, str]] | None = None
 backup_name: str | None = None
 stage_name: str | None = None
+transaction_nonce = secrets.token_hex(32)
+promoted_marker_active = False
 exit_code = 1
 
 try:
@@ -1300,6 +1751,16 @@ try:
     lock_identity = entry_identity(skills_fd, lock_name)
     if lock_identity is None:
         raise InstallFailure("installation lock disappeared before it could be anchored")
+    lock_fd = os.open(lock_name, directory_flags, dir_fd=skills_fd)
+    try:
+        if fd_identity(lock_fd) != lock_identity:
+            raise InstallFailure("installation lock identity changed during setup")
+        lock_marker_proof = create_ownership_marker(
+            lock_fd,
+            ownership_marker_payload(transaction_nonce, "lock"),
+        )
+    finally:
+        os.close(lock_fd)
 
     if entry_identity(skills_fd, target_name) is not None and not force:
         raise InstallFailure(
@@ -1310,6 +1771,10 @@ try:
 
     stage_name, stage_identity = make_unique_directory(skills_fd, ".map-project.install-")
     stage_fd = open_child_directory(skills_fd, stage_name, create=False)
+    stage_marker_proof = create_ownership_marker(
+        stage_fd,
+        ownership_marker_payload(transaction_nonce, "staging-root"),
+    )
     os.mkdir("map-project", 0o700, dir_fd=stage_fd)
     staged_source_fd = os.open("map-project", directory_flags, dir_fd=stage_fd)
     try:
@@ -1338,6 +1803,14 @@ try:
     validate_regular_tree("map-project", f"staged {host_label} skill")
     if installer_host == "codex":
         rewrite_codex_metadata(stage_fd)
+    staged_source_fd = os.open("map-project", directory_flags, dir_fd=stage_fd)
+    try:
+        target_marker_proof = create_ownership_marker(
+            staged_source_fd,
+            ownership_marker_payload(transaction_nonce, "promoted-target"),
+        )
+    finally:
+        os.close(staged_source_fd)
     shutil.copytree("map-project", "expected-map-project", symlinks=True)
     validate_regular_tree("expected-map-project", f"expected {host_label} skill snapshot")
 
@@ -1350,6 +1823,27 @@ try:
 
     existing_target_identity = entry_identity(skills_fd, target_name)
     if existing_target_identity is not None:
+        try:
+            existing_target_fd = os.open(target_name, directory_flags, dir_fd=skills_fd)
+        except OSError as exc:
+            raise InstallFailure(
+                "existing installation cannot be anchored for exact backup verification"
+            ) from exc
+        try:
+            if fd_identity(existing_target_fd) != existing_target_identity:
+                raise InstallFailure(
+                    "existing installation identity changed before backup verification"
+                )
+            backup_payload_manifest = descriptor_tree_manifest(
+                existing_target_fd,
+                "existing installation backup payload",
+            )
+            if entry_identity(skills_fd, target_name) != existing_target_identity:
+                raise InstallFailure(
+                    "existing installation identity changed during backup verification"
+                )
+        finally:
+            os.close(existing_target_fd)
         backups_root_fd = open_child_directory(root_fd, ".skill-backups", create=True)
         try:
             backup_fd = open_child_directory(backups_root_fd, "project-atlas", create=True)
@@ -1369,6 +1863,7 @@ try:
                         candidate,
                         existing_target_identity,
                         label="existing installation backup",
+                        payload_manifest=backup_payload_manifest,
                         after_move_test_point="AFTER_BACKUP_MOVE",
                     )
             except FileExistsError:
@@ -1388,7 +1883,10 @@ try:
     staged_skill_identity = entry_identity(stage_fd, "map-project")
     if staged_skill_identity is None:
         raise InstallFailure("staged installation disappeared before promotion")
+    if target_marker_proof is None:
+        raise InstallFailure("staged installation has no run-specific ownership proof")
     promoted_identity = staged_skill_identity
+    promoted_marker_active = True
     try:
         with defer_handled_signals():
             move_owned_noreplace(
@@ -1398,6 +1896,7 @@ try:
                 target_name,
                 staged_skill_identity,
                 label="staged installation promotion",
+                marker_proof=target_marker_proof,
                 after_move_test_point="AFTER_PROMOTION_MOVE",
             )
     except FileExistsError as exc:
@@ -1409,6 +1908,11 @@ try:
         target_fd = os.open(target_name, directory_flags, dir_fd=skills_fd)
         if fd_identity(target_fd) != promoted_identity:
             raise InstallFailure("installed target identity changed before verification")
+        verify_ownership_marker(
+            target_fd,
+            target_marker_proof,
+            "installed target",
+        )
         expected_fd = os.open("expected-map-project", directory_flags, dir_fd=stage_fd)
         expected_manifest = descriptor_tree_manifest(
             expected_fd, f"expected {host_label} skill snapshot"
@@ -1446,16 +1950,67 @@ try:
         backup_fd is not None
         and backup_name is not None
         and backup_identity is not None
-        and entry_identity(backup_fd, backup_name) != backup_identity
     ):
-        raise InstallFailure("backup identity changed during the transaction")
+        if backup_payload_manifest is None:
+            raise InstallFailure("backup has no exact transaction payload proof")
+        verify_owned_directory(
+            backup_fd,
+            backup_name,
+            backup_identity,
+            label="preserved installation backup",
+            payload_manifest=backup_payload_manifest,
+        )
+
+    if expected_manifest is None or target_marker_proof is None:
+        raise InstallFailure("installed target verification proof is incomplete")
+    clean_expected_manifest = dict(expected_manifest)
+    if clean_expected_manifest.pop((INSTALL_MARKER_NAME,), None) is None:
+        raise InstallFailure("expected installation snapshot lost its ownership marker")
+    target_fd = os.open(target_name, directory_flags, dir_fd=skills_fd)
+    try:
+        if fd_identity(target_fd) != promoted_identity:
+            raise InstallFailure("installed target identity changed before commit")
+        verify_ownership_marker(
+            target_fd,
+            target_marker_proof,
+            "installed target",
+        )
+        with defer_handled_signals():
+            remove_ownership_marker(
+                target_fd,
+                target_marker_proof,
+                "installed target",
+            )
+            promoted_marker_active = False
+        if (
+            descriptor_tree_manifest(target_fd, f"committed {host_label} skill")
+            != clean_expected_manifest
+        ):
+            raise InstallFailure("installed target changed at the marker-removal commit point")
+        if (
+            fd_identity(target_fd) != promoted_identity
+            or entry_identity(skills_fd, target_name) != promoted_identity
+        ):
+            raise InstallFailure("installed target identity changed during commit")
+    finally:
+        os.close(target_fd)
     exit_code = 0
 except BaseException as exc:
     interrupted_signal = exc.signum if isinstance(exc, InstallInterrupted) else None
-    if skills_fd is not None and promoted_identity is not None:
+    if (
+        skills_fd is not None
+        and promoted_identity is not None
+        and promoted_marker_active
+        and target_marker_proof is not None
+    ):
         current_target_identity = entry_identity(skills_fd, target_name)
         if current_target_identity == promoted_identity:
-            if not remove_owned_entry(skills_fd, target_name, promoted_identity):
+            if not remove_owned_entry(
+                skills_fd,
+                target_name,
+                promoted_identity,
+                target_marker_proof,
+            ):
                 print(
                     f"{command_name}: unable to remove the installer-owned target",
                     file=sys.stderr,
@@ -1489,6 +2044,7 @@ except BaseException as exc:
                     target_name,
                     backup_identity,
                     label="backup restore",
+                    payload_manifest=backup_payload_manifest,
                     barrier="BACKUP_RESTORE",
                 )
                 backup_name = None
@@ -1509,11 +2065,21 @@ except BaseException as exc:
     exit_code = 128 + interrupted_signal if interrupted_signal is not None else 1
 finally:
     if skills_fd is not None and stage_name is not None and stage_identity is not None:
-        if not remove_owned_entry(skills_fd, stage_name, stage_identity):
+        if stage_marker_proof is None or not remove_owned_entry(
+            skills_fd,
+            stage_name,
+            stage_identity,
+            stage_marker_proof,
+        ):
             print(f"{command_name}: unable to remove owned staging directory", file=sys.stderr)
             exit_code = 1
     if skills_fd is not None and lock_identity is not None:
-        if not remove_owned_entry(skills_fd, lock_name, lock_identity):
+        if lock_marker_proof is None or not remove_owned_entry(
+            skills_fd,
+            lock_name,
+            lock_identity,
+            lock_marker_proof,
+        ):
             print(f"{command_name}: unable to release the owned installation lock", file=sys.stderr)
             exit_code = 1
     for descriptor in (stage_fd, backup_fd, skills_fd, root_fd, source_fd):

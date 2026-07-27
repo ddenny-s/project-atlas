@@ -1,0 +1,308 @@
+{
+  "as_of": "2026-07-26",
+  "caveat": "These are planning scenarios, not measured Project Atlas productivity. Replace them with paired provider-reported runs before claiming observed ROI.",
+  "classification": "MODELLED_ASSUMPTION",
+  "formulae": {
+    "break_even_tasks": "ceil(build_cost / per_task_saving), only when per_task_saving > 0",
+    "contract_pass_delta_points": "atlas_contract_pass_percent - baseline_contract_pass_percent",
+    "contract_pass_relative_improvement_percent": "(atlas_contract_pass_percent - baseline_contract_pass_percent) / baseline_contract_pass_percent * 100",
+    "net_saving": "baseline_per_task * N - build_cost - (atlas_use_per_task + refresh_per_task) * N",
+    "net_saving_percent": "net_saving / (baseline_per_task * N) * 100",
+    "per_task_saving": "baseline_per_task - atlas_use_per_task - refresh_per_task",
+    "roi_on_build": "net_saving / build_cost * 100"
+  },
+  "scenarios": [
+    {
+      "assumptions": {
+        "atlas_build_minutes": 240,
+        "atlas_build_tokens": 300000,
+        "atlas_contract_pass_percent": 68,
+        "atlas_use_minutes_per_task": 20,
+        "atlas_use_tokens_per_task": 48000,
+        "baseline_contract_pass_percent": 70,
+        "baseline_minutes_per_task": 25,
+        "baseline_tokens_per_task": 60000,
+        "refresh_minutes_per_task": 3,
+        "refresh_tokens_per_task": 6000
+      },
+      "id": "pessimistic",
+      "quality": {
+        "atlas_contract_pass_percent": 68,
+        "baseline_contract_pass_percent": 70,
+        "contract_pass_delta_points": -2.0,
+        "contract_pass_relative_improvement_percent": -2.9
+      },
+      "time": {
+        "break_even_tasks": 120,
+        "horizons": [
+          {
+            "atlas_total": 355,
+            "baseline_total": 125,
+            "horizon_tasks": 5,
+            "net_saving": -230,
+            "net_saving_percent_of_baseline": -184.0,
+            "roi_on_build_percent": -95.8
+          },
+          {
+            "atlas_total": 470,
+            "baseline_total": 250,
+            "horizon_tasks": 10,
+            "net_saving": -220,
+            "net_saving_percent_of_baseline": -88.0,
+            "roi_on_build_percent": -91.7
+          },
+          {
+            "atlas_total": 815,
+            "baseline_total": 625,
+            "horizon_tasks": 25,
+            "net_saving": -190,
+            "net_saving_percent_of_baseline": -30.4,
+            "roi_on_build_percent": -79.2
+          },
+          {
+            "atlas_total": 1390,
+            "baseline_total": 1250,
+            "horizon_tasks": 50,
+            "net_saving": -140,
+            "net_saving_percent_of_baseline": -11.2,
+            "roi_on_build_percent": -58.3
+          }
+        ],
+        "per_task_saving_minutes": 2
+      },
+      "tokens": {
+        "break_even_tasks": 50,
+        "horizons": [
+          {
+            "atlas_total": 570000,
+            "baseline_total": 300000,
+            "horizon_tasks": 5,
+            "net_saving": -270000,
+            "net_saving_percent_of_baseline": -90.0,
+            "roi_on_build_percent": -90.0
+          },
+          {
+            "atlas_total": 840000,
+            "baseline_total": 600000,
+            "horizon_tasks": 10,
+            "net_saving": -240000,
+            "net_saving_percent_of_baseline": -40.0,
+            "roi_on_build_percent": -80.0
+          },
+          {
+            "atlas_total": 1650000,
+            "baseline_total": 1500000,
+            "horizon_tasks": 25,
+            "net_saving": -150000,
+            "net_saving_percent_of_baseline": -10.0,
+            "roi_on_build_percent": -50.0
+          },
+          {
+            "atlas_total": 3000000,
+            "baseline_total": 3000000,
+            "horizon_tasks": 50,
+            "net_saving": 0,
+            "net_saving_percent_of_baseline": 0.0,
+            "roi_on_build_percent": 0.0
+          }
+        ],
+        "per_task_saving_tokens": 6000
+      }
+    },
+    {
+      "assumptions": {
+        "atlas_build_minutes": 120,
+        "atlas_build_tokens": 170000,
+        "atlas_contract_pass_percent": 76,
+        "atlas_use_minutes_per_task": 14,
+        "atlas_use_tokens_per_task": 35000,
+        "baseline_contract_pass_percent": 70,
+        "baseline_minutes_per_task": 30,
+        "baseline_tokens_per_task": 70000,
+        "refresh_minutes_per_task": 2,
+        "refresh_tokens_per_task": 5000
+      },
+      "id": "illustrative_mid",
+      "quality": {
+        "atlas_contract_pass_percent": 76,
+        "baseline_contract_pass_percent": 70,
+        "contract_pass_delta_points": 6.0,
+        "contract_pass_relative_improvement_percent": 8.6
+      },
+      "time": {
+        "break_even_tasks": 9,
+        "horizons": [
+          {
+            "atlas_total": 200,
+            "baseline_total": 150,
+            "horizon_tasks": 5,
+            "net_saving": -50,
+            "net_saving_percent_of_baseline": -33.3,
+            "roi_on_build_percent": -41.7
+          },
+          {
+            "atlas_total": 280,
+            "baseline_total": 300,
+            "horizon_tasks": 10,
+            "net_saving": 20,
+            "net_saving_percent_of_baseline": 6.7,
+            "roi_on_build_percent": 16.7
+          },
+          {
+            "atlas_total": 520,
+            "baseline_total": 750,
+            "horizon_tasks": 25,
+            "net_saving": 230,
+            "net_saving_percent_of_baseline": 30.7,
+            "roi_on_build_percent": 191.7
+          },
+          {
+            "atlas_total": 920,
+            "baseline_total": 1500,
+            "horizon_tasks": 50,
+            "net_saving": 580,
+            "net_saving_percent_of_baseline": 38.7,
+            "roi_on_build_percent": 483.3
+          }
+        ],
+        "per_task_saving_minutes": 14
+      },
+      "tokens": {
+        "break_even_tasks": 6,
+        "horizons": [
+          {
+            "atlas_total": 370000,
+            "baseline_total": 350000,
+            "horizon_tasks": 5,
+            "net_saving": -20000,
+            "net_saving_percent_of_baseline": -5.7,
+            "roi_on_build_percent": -11.8
+          },
+          {
+            "atlas_total": 570000,
+            "baseline_total": 700000,
+            "horizon_tasks": 10,
+            "net_saving": 130000,
+            "net_saving_percent_of_baseline": 18.6,
+            "roi_on_build_percent": 76.5
+          },
+          {
+            "atlas_total": 1170000,
+            "baseline_total": 1750000,
+            "horizon_tasks": 25,
+            "net_saving": 580000,
+            "net_saving_percent_of_baseline": 33.1,
+            "roi_on_build_percent": 341.2
+          },
+          {
+            "atlas_total": 2170000,
+            "baseline_total": 3500000,
+            "horizon_tasks": 50,
+            "net_saving": 1330000,
+            "net_saving_percent_of_baseline": 38.0,
+            "roi_on_build_percent": 782.4
+          }
+        ],
+        "per_task_saving_tokens": 30000
+      }
+    },
+    {
+      "assumptions": {
+        "atlas_build_minutes": 75,
+        "atlas_build_tokens": 120000,
+        "atlas_contract_pass_percent": 82,
+        "atlas_use_minutes_per_task": 10,
+        "atlas_use_tokens_per_task": 28000,
+        "baseline_contract_pass_percent": 70,
+        "baseline_minutes_per_task": 40,
+        "baseline_tokens_per_task": 90000,
+        "refresh_minutes_per_task": 2,
+        "refresh_tokens_per_task": 4000
+      },
+      "id": "optimistic",
+      "quality": {
+        "atlas_contract_pass_percent": 82,
+        "baseline_contract_pass_percent": 70,
+        "contract_pass_delta_points": 12.0,
+        "contract_pass_relative_improvement_percent": 17.1
+      },
+      "time": {
+        "break_even_tasks": 3,
+        "horizons": [
+          {
+            "atlas_total": 135,
+            "baseline_total": 200,
+            "horizon_tasks": 5,
+            "net_saving": 65,
+            "net_saving_percent_of_baseline": 32.5,
+            "roi_on_build_percent": 86.7
+          },
+          {
+            "atlas_total": 195,
+            "baseline_total": 400,
+            "horizon_tasks": 10,
+            "net_saving": 205,
+            "net_saving_percent_of_baseline": 51.2,
+            "roi_on_build_percent": 273.3
+          },
+          {
+            "atlas_total": 375,
+            "baseline_total": 1000,
+            "horizon_tasks": 25,
+            "net_saving": 625,
+            "net_saving_percent_of_baseline": 62.5,
+            "roi_on_build_percent": 833.3
+          },
+          {
+            "atlas_total": 675,
+            "baseline_total": 2000,
+            "horizon_tasks": 50,
+            "net_saving": 1325,
+            "net_saving_percent_of_baseline": 66.2,
+            "roi_on_build_percent": 1766.7
+          }
+        ],
+        "per_task_saving_minutes": 28
+      },
+      "tokens": {
+        "break_even_tasks": 3,
+        "horizons": [
+          {
+            "atlas_total": 280000,
+            "baseline_total": 450000,
+            "horizon_tasks": 5,
+            "net_saving": 170000,
+            "net_saving_percent_of_baseline": 37.8,
+            "roi_on_build_percent": 141.7
+          },
+          {
+            "atlas_total": 440000,
+            "baseline_total": 900000,
+            "horizon_tasks": 10,
+            "net_saving": 460000,
+            "net_saving_percent_of_baseline": 51.1,
+            "roi_on_build_percent": 383.3
+          },
+          {
+            "atlas_total": 920000,
+            "baseline_total": 2250000,
+            "horizon_tasks": 25,
+            "net_saving": 1330000,
+            "net_saving_percent_of_baseline": 59.1,
+            "roi_on_build_percent": 1108.3
+          },
+          {
+            "atlas_total": 1720000,
+            "baseline_total": 4500000,
+            "horizon_tasks": 50,
+            "net_saving": 2780000,
+            "net_saving_percent_of_baseline": 61.8,
+            "roi_on_build_percent": 2316.7
+          }
+        ],
+        "per_task_saving_tokens": 58000
+      }
+    }
+  ],
+  "schema_version": "0.1"
+}

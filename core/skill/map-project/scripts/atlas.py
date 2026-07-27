@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
@@ -259,7 +260,10 @@ ATLAS_REF_PREFIXES = {
     "PRODUCT_AND_REQUIREMENTS.md#requirements",
     "FINDINGS_AND_DISPOSITIONS.md#findings",
     "MIGRATION_PLAN.md#migration",
+    "MIGRATION_PLAN.md#future-tasks",
     "OPEN_UNKNOWNS.md#unknowns",
+    "PRODUCT_AND_REQUIREMENTS.md#direction",
+    "LIVE_HANDOFF.md#direction",
     "LIVE_HANDOFF.md#reviews",
 }
 
@@ -510,6 +514,135 @@ STANDARD_CURRENT_SOURCE_COLUMNS = {
     "FINDINGS_AND_DISPOSITIONS.md": "Evidence",
 }
 CURRENT_MATERIAL_CLAIM_KINDS = {"CONFIRMED", "INFERENCE", "HYPOTHESIS"}
+QUESTION_TABLE_COLUMNS = (
+    "Question ID",
+    "Batch ID",
+    "Topic",
+    "Question",
+    "Option A",
+    "Option B",
+    "Option C",
+    "Option D",
+    "Selected",
+    "Free-form note",
+    "Answer state",
+    "Map effect",
+    "Provenance",
+    "Answered at",
+)
+BATCH_LEDGER_COLUMNS = (
+    "Batch ID",
+    "Sequence",
+    "Question IDs",
+    "Remaining material gaps",
+    "Decision",
+    "Decision provenance",
+    "Status",
+)
+RUN_ECONOMICS_COLUMNS = (
+    "Run ID",
+    "Block ID",
+    "Entry",
+    "Block",
+    "Unit",
+    "Min",
+    "Typical",
+    "Max",
+    "Basis",
+    "Model tier and effort",
+    "Input",
+    "Output",
+    "Reasoning",
+    "Total",
+    "Telemetry",
+    "Variance vs typical",
+    "Recorded at",
+    "Status",
+)
+FUTURE_TASKS_COLUMNS = (
+    "Task ID",
+    "Claim kind",
+    "Priority",
+    "Outcome",
+    "Basis",
+    "Affected areas",
+    "Scope",
+    "Non-goals",
+    "Acceptance criteria",
+    "Dependencies and unknowns",
+    "Risks",
+    "Verification",
+    "Status",
+)
+INTERACTION_SECTIONS = (
+    "Start Alignment",
+    "Finish Alignment",
+    "Run Economics",
+    "Future Tasks",
+)
+INTERACTION_PLACEMENT = {
+    "QUICK": {
+        "Start Alignment": "PROJECT_ATLAS.md",
+        "Finish Alignment": "PROJECT_ATLAS.md",
+        "Run Economics": "PROJECT_ATLAS.md",
+        "Future Tasks": "PROJECT_ATLAS.md",
+    },
+    "STANDARD": {
+        "Start Alignment": "PRODUCT_AND_REQUIREMENTS.md",
+        "Finish Alignment": "LIVE_HANDOFF.md",
+        "Run Economics": "LIVE_HANDOFF.md",
+        "Future Tasks": "MIGRATION_PLAN.md",
+    },
+    "FORENSIC": {
+        "Start Alignment": "PRODUCT_AND_REQUIREMENTS.md",
+        "Finish Alignment": "LIVE_HANDOFF.md",
+        "Run Economics": "LIVE_HANDOFF.md",
+        "Future Tasks": "MIGRATION_PLAN.md",
+    },
+}
+INTERACTION_START_REGISTRY = "interaction:start-alignment"
+INTERACTION_FINISH_REGISTRY = "interaction:finish-alignment"
+INTERACTION_FUTURE_TASKS_REGISTRY = "interaction:future-tasks"
+INTERACTION_RUN_ECONOMICS_REGISTRY = "interaction:run-economics"
+MAX_INTERACTION_ROWS = MAX_REGISTRY_ROWS
+QUESTION_ANSWER_STATES = {"ANSWERED", "SKIPPED", "UNAVAILABLE", "SUPERSEDED"}
+BATCH_DECISIONS = {"CONTINUE", "STOP_STABLE", "STOP_USER", "STOP_UNAVAILABLE"}
+BATCH_STATUSES = {"ACTIVE", "COMPLETE", "SUPERSEDED"}
+FUTURE_TASK_STATUSES = {"READY", "BLOCKED", "SUPERSEDED", "REJECTED"}
+USER_INPUT_PROVENANCE = re.compile(
+    r"USER_INPUT:[A-Za-z0-9][A-Za-z0-9._-]{0,127}"
+)
+UNKNOWN_REFERENCE = re.compile(
+    r"UNKNOWN:[A-Za-z0-9][A-Za-z0-9._-]{0,127}"
+)
+UNAVAILABLE_PROVENANCE = re.compile(
+    r"UNAVAILABLE:[A-Za-z0-9][A-Za-z0-9._-]{0,127}"
+)
+MATERIAL_GAP_PROVENANCE = re.compile(
+    r"PROTOCOL:MATERIAL_GAP:[A-Za-z0-9][A-Za-z0-9._-]{0,127}"
+)
+MAP_BASIS_REFERENCE = re.compile(
+    r"MAP:(?P<filename>[A-Z][A-Z0-9_]*\.md)#"
+    r"(?P<anchor>[A-Za-z0-9][A-Za-z0-9._/-]{0,255})"
+)
+MAP_BASIS_TOKEN = re.compile(r"MAP:[^\s;,|]+")
+MODEL_TOKEN_TERM = re.compile(r"(?i)(?:\bmodel[_ -]?tokens?\b|\btokens?\b|токен)")
+QUOTA_PERCENT_TERM = re.compile(
+    r"(?i)(?=.*(?:%|\bpercent(?:age)?\b|процент))"
+    r"(?=.*(?:\bquota\b|\bweekly\b|\bdaily\b|квот|лимит|недел|дневн))"
+)
+FUTURE_TASK_DRAFT_MARKER = re.compile(
+    r"(?i)^(?:[-–—]+|n/?a|"
+    + "t"
+    + r"bd(?:(?:[:;,.!?/–—-]|\s).*)?|"
+    + "to"
+    + r"do(?:(?:[:;,.!?/–—-]|\s).*)?|"
+    + "dra"
+    + r"ft(?:(?:[:;,.!?/–—-]|\s).*)?|"
+    + "place"
+    + r"holder(?:(?:[:;,.!?/–—-]|\s).*)?|"
+    + r"fill(?:\s+|-)?me(?:(?:[:;,.!?/–—-]|\s).*)?|unknown)$"
+)
 
 
 @dataclass(frozen=True)
@@ -1224,6 +1357,28 @@ def git_metadata_present(root: Path) -> bool:
         os.close(descriptor)
 
 
+def shared_path_ancestor(left: Path, right: Path) -> Path | None:
+    """Return the deepest shared directory by filesystem identity."""
+
+    try:
+        right_ancestors: dict[tuple[int, int], Path] = {}
+        for candidate in (right, *right.parents):
+            details = candidate.stat()
+            if not stat.S_ISDIR(details.st_mode):
+                raise AtlasError("executable ancestry cannot be inspected safely")
+            right_ancestors.setdefault((details.st_dev, details.st_ino), candidate)
+        for candidate in (left, *left.parents):
+            details = candidate.stat()
+            if not stat.S_ISDIR(details.st_mode):
+                raise AtlasError("executable ancestry cannot be inspected safely")
+            matching = right_ancestors.get((details.st_dev, details.st_ino))
+            if matching is not None:
+                return matching
+    except OSError:
+        raise AtlasError("executable ancestry cannot be inspected safely") from None
+    return None
+
+
 def read_ignore_metadata(
     directory: Path,
     root: Path,
@@ -1257,6 +1412,45 @@ def read_ignore_metadata(
     return tuple(metadata)
 
 
+def is_trusted_homebrew_cellar_directory(
+    directory: Path,
+    metadata: os.stat_result,
+    trusted_owners: set[int],
+    process_groups: set[int],
+) -> bool:
+    """Allow only Homebrew's documented group-writable Cellar roots."""
+
+    return (
+        directory
+        in {
+            Path("/opt/homebrew/Cellar"),
+            Path("/usr/local/Cellar"),
+            Path("/home/linuxbrew/.linuxbrew/Cellar"),
+        }
+        and getattr(metadata, "st_uid", None) in trusted_owners
+        and getattr(metadata, "st_gid", None) in process_groups
+        and bool(metadata.st_mode & stat.S_IWGRP)
+        and not metadata.st_mode & stat.S_IWOTH
+    )
+
+
+def is_trusted_macos_applications_directory(
+    directory: Path,
+    metadata: os.stat_result,
+    process_groups: set[int],
+) -> bool:
+    """Allow the root-owned macOS Applications root, never an arbitrary child."""
+
+    return (
+        sys.platform == "darwin"
+        and directory == Path("/Applications")
+        and getattr(metadata, "st_uid", None) == 0
+        and getattr(metadata, "st_gid", None) in process_groups
+        and bool(metadata.st_mode & stat.S_IWGRP)
+        and not metadata.st_mode & stat.S_IWOTH
+    )
+
+
 def trusted_host_executable(
     name: str,
     *,
@@ -1273,25 +1467,62 @@ def trusted_host_executable(
         resolved_roots = tuple(root.resolve(strict=True) for root in prohibited_roots)
     except OSError:
         raise AtlasError(f"host {name} executable is unsafe") from None
+    effective_uid_getter = getattr(os, "geteuid", None)
+    trusted_owners = {0}
+    if callable(effective_uid_getter):
+        trusted_owners.add(effective_uid_getter())
+    try:
+        process_groups = set(os.getgroups())
+    except OSError:
+        raise AtlasError(f"host {name} executable is unsafe") from None
+    effective_gid_getter = getattr(os, "getegid", None)
+    if callable(effective_gid_getter):
+        process_groups.add(effective_gid_getter())
     if (
         not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_mode & stat.S_IWOTH
+        or getattr(metadata, "st_uid", None) not in trusted_owners
+        or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
         or not os.access(executable, os.X_OK)
     ):
         raise AtlasError(f"host {name} executable is unsafe")
-    if any(executable == root or root in executable.parents for root in resolved_roots):
-        raise AtlasError(f"host {name} executable is unsafe")
-    try:
-        executable_is_repository_controlled = git_metadata_present(executable.parent)
-    except AtlasError:
-        raise AtlasError(f"host {name} executable is unsafe") from None
-    if executable_is_repository_controlled:
-        raise AtlasError(f"host {name} executable is unsafe")
+    for root in resolved_roots:
+        try:
+            shared_ancestor = shared_path_ancestor(executable.parent, root)
+        except AtlasError:
+            raise AtlasError(f"host {name} executable is unsafe") from None
+        if shared_ancestor is None:
+            continue
+        if shared_ancestor == root:
+            raise AtlasError(f"host {name} executable is unsafe")
+        try:
+            shares_repository = git_metadata_present(shared_ancestor)
+        except AtlasError:
+            raise AtlasError(f"host {name} executable is unsafe") from None
+        if shares_repository:
+            raise AtlasError(f"host {name} executable is unsafe")
     for directory in executable.parents:
         try:
-            directory_mode = directory.stat().st_mode
+            directory_metadata = directory.stat()
         except OSError:
             raise AtlasError(f"host {name} executable is unsafe") from None
+        directory_mode = directory_metadata.st_mode
+        trusted_group_writable_cellar = is_trusted_homebrew_cellar_directory(
+            directory,
+            directory_metadata,
+            trusted_owners,
+            process_groups,
+        )
+        trusted_macos_applications = is_trusted_macos_applications_directory(
+            directory,
+            directory_metadata,
+            process_groups,
+        )
+        if (
+            directory_mode & stat.S_IWGRP
+            and not trusted_group_writable_cellar
+            and not trusted_macos_applications
+        ):
+            raise AtlasError(f"host {name} executable is unsafe")
         if directory_mode & stat.S_IWOTH and not directory_mode & stat.S_ISVTX:
             raise AtlasError(f"host {name} executable is unsafe")
     return os.fspath(executable)
@@ -1870,6 +2101,7 @@ ROOT_MODE_SIGNAL_SUPPORT_NAME = re.compile(
     r"^(?:conftest\.py|test_.+\.[^.]+|.+_test\.[^.]+|.+_spec\.[^.]+|.+\.(?:spec|test)\.[^.]+)$",
     re.IGNORECASE,
 )
+EXPLICIT_SUPPORT_TOOL_PATHS = frozenset({"scripts/benchmark_atlas.py"})
 
 DECLARATION_CONFIG_SUFFIXES = frozenset(
     {".cfg", ".conf", ".ini", ".json", ".toml", ".yaml", ".yml"}
@@ -1896,6 +2128,8 @@ TRUE_CONFIG_SIGNAL_VALUES = frozenset(
 def is_product_signal_path(relative: PurePosixPath) -> bool:
     """Keep support contours in inventory without treating them as product topology."""
 
+    if relative.as_posix().casefold() in EXPLICIT_SUPPORT_TOOL_PATHS:
+        return False
     if any(part.lower() in MODE_SIGNAL_SUPPORT_PARTS for part in relative.parts[:-1]):
         return False
     if len(relative.parts) == 1 and ROOT_MODE_SIGNAL_SUPPORT_NAME.fullmatch(relative.name):
@@ -2825,6 +3059,120 @@ def inventory_command(args: argparse.Namespace) -> int:
         sys.stdout.write(serialize_json_output(payload, indent=2))
     else:
         write_json(args.output.expanduser(), payload)
+    return 0
+
+
+def round_up_modelled(value: int, quantum: int = 100) -> int:
+    if value <= 0:
+        return quantum
+    return ((value + quantum - 1) // quantum) * quantum
+
+
+def estimate_budget_payload(project: Path, mode: str) -> dict[str, Any]:
+    """Build a deterministic model from safe inventory metadata, never file contents."""
+
+    inventory = build_safe_inventory(project)
+    safe_readable_bytes = sum(
+        inventory_file_size(inventory, relative) for relative in inventory.ordered
+    )
+    source_token_proxy = round_up_modelled(
+        (safe_readable_bytes + 3) // 4
+    )
+    mode_multiplier = {
+        "QUICK": 75,
+        "STANDARD": 100,
+        "FORENSIC": 130,
+    }[mode]
+    block_models: list[tuple[str, str, int, int]] = [
+        ("start_alignment_batch", "Start alignment batch", 500, 2),
+        ("inventory_scope", "Inventory and scope", 700, 12),
+        ("contour_investigation", "Contour investigation", 1_000, 35),
+        ("synthesis_tasks", "Synthesis and future tasks", 800, 15),
+        ("finish_alignment_batch", "Finish alignment batch", 400, 2),
+        ("validation_handoff", "Validation and handoff", 600, 8),
+    ]
+    if mode == "FORENSIC":
+        block_models.extend(
+            (
+                ("correctness_review", "Independent correctness review", 700, 8),
+                ("security_review", "Independent security review", 700, 8),
+            )
+        )
+
+    blocks: list[dict[str, Any]] = []
+    for block_id, block_name, base, source_percentage in block_models:
+        source_component = (
+            source_token_proxy * source_percentage + 99
+        ) // 100
+        mode_adjusted = (
+            (base + source_component) * mode_multiplier + 99
+        ) // 100
+        typical = round_up_modelled(mode_adjusted)
+        minimum = max(100, (typical * 3 // 4 // 100) * 100)
+        maximum = round_up_modelled(typical * 3 // 2)
+        blocks.append(
+            {
+                "block_id": block_id,
+                "block": block_name,
+                "unit": "MODEL_TOKENS",
+                "min": minimum,
+                "typical": typical,
+                "max": maximum,
+                "status": "MODELLED",
+                "basis": "ASSUMPTION",
+                "formula": (
+                    f"round100(({base} + ceil(source_token_proxy * "
+                    f"{source_percentage} / 100)) * {mode_multiplier} / 100)"
+                ),
+                "max_semantics": "REFORECAST_THRESHOLD_NOT_HARD_CAP",
+            }
+        )
+
+    totals = {
+        field: sum(int(block[field]) for block in blocks)
+        for field in ("min", "typical", "max")
+    }
+    return {
+        "status": "MODELLED",
+        "basis": "ASSUMPTION",
+        "mode": mode,
+        "unit": "MODEL_TOKENS",
+        "safe_inventory": {
+            "file_count": len(inventory.ordered),
+            "excluded_count": inventory.excluded_count,
+            "safe_readable_bytes": safe_readable_bytes,
+            "content_read": False,
+        },
+        "source_token_proxy": {
+            "value": source_token_proxy,
+            "formula": "ceil(safe_readable_bytes / 4), rounded up to 100",
+            "status": "MODELLED",
+            "basis": "ASSUMPTION",
+        },
+        "blocks": blocks,
+        "totals": totals,
+        "maximum": {
+            "value": totals["max"],
+            "meaning": "REFORECAST_THRESHOLD_NOT_HARD_CAP",
+        },
+        "exclusions": [
+            "pre-existing conversation",
+            "weekly quota conversion",
+        ],
+        "assumptions": [
+            "safe readable bytes approximate source volume without opening project contents",
+            "actual usage varies with unresolved gaps, tool results, and review findings",
+            "maximum values trigger reforecasting and are not execution caps",
+        ],
+    }
+
+
+def estimate_budget_command(args: argparse.Namespace) -> int:
+    project = project_from_args(args)
+    assert project is not None
+    sys.stdout.write(
+        serialize_json_output(estimate_budget_payload(project, args.mode), indent=2)
+    )
     return 0
 
 
@@ -3831,6 +4179,32 @@ def collect_material_claims(
             "CONFIRMED",
             f"{review_kind} review {verdict}: {critical} Critical, {important} Important",
         )
+    for registry_name in (
+        INTERACTION_START_REGISTRY,
+        INTERACTION_FINISH_REGISTRY,
+    ):
+        for row in registries.get(registry_name, []):
+            if row.values.get("Answer state") != "ANSWERED":
+                continue
+            identifier = row.values.get("Question ID", "")
+            selected = row.values.get("Selected", "")
+            selected_option = row.values.get(f"Option {selected}", "")
+            add(
+                row,
+                f"{row.filename}#direction/{identifier}",
+                "TARGET",
+                f"{row.values.get('Question', '')}: {selected_option}",
+            )
+    for row in registries.get(INTERACTION_FUTURE_TASKS_REGISTRY, []):
+        if row.values.get("Status") not in {"READY", "BLOCKED"}:
+            continue
+        identifier = row.values.get("Task ID", "")
+        add(
+            row,
+            f"{row.filename}#future-tasks/{identifier}",
+            "TARGET",
+            row.values.get("Outcome", ""),
+        )
     return claims, errors
 
 
@@ -4001,20 +4375,96 @@ def validate_independent_reviews(
     return errors
 
 
+def top_level_markdown_section_headings(
+    text: str,
+) -> tuple[str, tuple[tuple[int, int, int, str], ...]]:
+    """Return visible top-level H1/H2 headings with rendered-source offsets."""
+
+    rendered_text = markdown_rendered_block_text(
+        text,
+        mark_container_continuations=True,
+    )
+    lines = commonmark_split_lines(rendered_text, keepends=True)
+    offsets: list[int] = []
+    offset = 0
+    for line in lines:
+        offsets.append(offset)
+        offset += len(line)
+
+    headings: list[tuple[int, int, int, str]] = []
+    index = 0
+    while index < len(lines):
+        raw = lines[index].rstrip("\r\n")
+        indentation = len(raw) - len(raw.lstrip(" "))
+        logical = raw[indentation:] if indentation <= 3 else ""
+        if logical.startswith(MARKDOWN_NON_TOP_LEVEL_MARKER):
+            index += 1
+            continue
+        atx = re.fullmatch(r"(#{1,2})(?:[ \t]+(.*?))?[ \t]*", logical)
+        if atx is not None:
+            name = re.sub(r"[ \t]+#+[ \t]*$", "", atx.group(2) or "").strip()
+            if name:
+                headings.append(
+                    (
+                        offsets[index],
+                        offsets[index] + len(lines[index]),
+                        len(atx.group(1)),
+                        name,
+                    )
+                )
+            index += 1
+            continue
+
+        if logical and index + 1 < len(lines):
+            _candidate_cursor, candidate_containers = markdown_container_cursor(
+                raw
+            )
+            underline_raw = lines[index + 1].rstrip("\r\n")
+            underline_indentation = len(underline_raw) - len(
+                underline_raw.lstrip(" ")
+            )
+            underline = (
+                underline_raw[underline_indentation:]
+                if underline_indentation <= 3
+                else ""
+            )
+            setext = re.fullmatch(r"(=+|-+)[ \t]*", underline)
+            if (
+                setext is not None
+                and not candidate_containers
+                and re.fullmatch(r"#{1,6}(?:[ \t]+.*)?", logical) is None
+            ):
+                headings.append(
+                    (
+                        offsets[index],
+                        offsets[index + 1] + len(lines[index + 1]),
+                        1 if setext.group(1).startswith("=") else 2,
+                        logical.strip(),
+                    )
+                )
+                index += 2
+                continue
+        index += 1
+    return rendered_text, tuple(headings)
+
+
 def level_two_sections(text: str) -> tuple[dict[str, str], set[str]]:
-    rendered_text = markdown_rendered_block_text(text)
-    matches = list(re.finditer(r"(?m)^##\s+([^\n]+?)\s*$", rendered_text))
+    rendered_text, headings = top_level_markdown_section_headings(text)
     sections: dict[str, str] = {}
     duplicates: set[str] = set()
-    for index, match in enumerate(matches):
-        name = match.group(1).strip()
-        body_start = match.end()
-        body_end = (
-            matches[index + 1].start()
-            if index + 1 < len(matches)
-            else len(rendered_text)
+    for index, (_start, heading_end, level, name) in enumerate(headings):
+        if level != 2:
+            continue
+        body_end = next(
+            (
+                next_start
+                for next_start, _next_end, next_level, _next_name
+                in headings[index + 1 :]
+                if next_level <= 2
+            ),
+            len(rendered_text),
         )
-        body = rendered_text[body_start:body_end].strip()
+        body = rendered_text[heading_end:body_end].strip()
         if name in sections:
             duplicates.add(name)
         else:
@@ -4035,6 +4485,1419 @@ def substantive_text(value: str, *, minimum_characters: int, minimum_words: int)
         else:
             inside_word = False
     return len(value.strip()) >= minimum_characters and words >= minimum_words
+
+
+def token_quota_conversion_claim(value: str) -> bool:
+    """Detect model-token and quota-percentage co-occurrence in one field."""
+
+    return (
+        MODEL_TOKEN_TERM.search(value) is not None
+        and QUOTA_PERCENT_TERM.search(value) is not None
+    )
+
+
+def markdown_heading_anchor(heading: str) -> str:
+    """Return the stable ASCII anchor form used by Project Atlas map refs."""
+
+    anchor: list[str] = []
+    pending_separator = False
+    for character in heading.casefold().strip():
+        if character.isascii() and (character.isalnum() or character in {"_", "-"}):
+            if pending_separator and anchor and anchor[-1] != "-":
+                anchor.append("-")
+            pending_separator = False
+            anchor.append(character)
+        elif character.isspace():
+            pending_separator = True
+    return "".join(anchor).strip("-")
+
+
+def visible_map_basis_evidence_text(body: str) -> str:
+    """Return visible evidence while excluding Markdown structure-only labels."""
+
+    lines = commonmark_split_lines(
+        markdown_container_text(body),
+        keepends=False,
+    )
+    structure_lines: set[int] = set()
+    for line_index, line in enumerate(lines):
+        stripped = line.strip()
+        if re.fullmatch(r"#{1,6}(?:\s+.*)?", stripped) is not None:
+            structure_lines.add(line_index)
+            continue
+        if (
+            stripped
+            and line_index + 1 < len(lines)
+            and re.fullmatch(r"(?:=+|-+)[ \t]*", lines[line_index + 1].strip())
+            is not None
+        ):
+            structure_lines.update((line_index, line_index + 1))
+
+    evidence: list[str] = []
+    in_table = False
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        if index in structure_lines:
+            in_table = False
+            index += 1
+            continue
+
+        cells = markdown_table_cells(line)
+        next_cells = (
+            markdown_table_cells(lines[index + 1])
+            if index + 1 < len(lines)
+            else None
+        )
+        if (
+            cells is not None
+            and next_cells is not None
+            and len(next_cells) == len(cells)
+            and all(
+                re.fullmatch(r":?-{3,}:?", cell) is not None
+                for cell in next_cells
+            )
+        ):
+            in_table = True
+            index += 2
+            continue
+
+        if in_table and cells is not None:
+            candidate = " ".join(cells)
+        else:
+            if in_table:
+                in_table = False
+            candidate = line
+
+        candidate = markdown_replace_inline_links(
+            candidate,
+            preserve_labels=False,
+        ).strip()
+        if re.fullmatch(
+            r" {0,3}\[[^\]\r\n]+\]:[ \t]*\S+(?:[ \t]+.*)?",
+            candidate,
+        ) is not None:
+            candidate = ""
+        candidate = re.sub(
+            r"!?\[[^\]\r\n]+\]\[[^\]\r\n]*\]",
+            " ",
+            candidate,
+        )
+        candidate = re.sub(
+            r"(?<!\\)!?\[[^\]\r\n]+\]",
+            " ",
+            candidate,
+        )
+        candidate = re.sub(
+            r"(?i)<(?:https?://|mailto:)[^<>\s]+>",
+            " ",
+            candidate,
+        )
+        candidate = re.sub(
+            r"(?i)\b(?:https?://|mailto:)\S+",
+            " ",
+            candidate,
+        ).strip()
+        if candidate:
+            evidence.append(candidate)
+        index += 1
+    return "\n".join(evidence)
+
+
+def visible_map_basis_anchors(
+    artifact_texts: dict[str, str],
+    mode: str,
+) -> dict[str, frozenset[str]]:
+    """Index visible map anchors backed by substantive, non-interaction bodies."""
+
+    anchors: dict[str, frozenset[str]] = {}
+    interaction_sections = {
+        section.casefold()
+        for section in INTERACTION_SECTIONS
+    }
+    for filename in MODE_FILES[mode]:
+        if not filename.endswith(".md"):
+            continue
+        artifact_text = artifact_texts.get(filename, "")
+        sections, duplicates = level_two_sections(artifact_text)
+        normalized_anchor_counts: dict[str, int] = {}
+        for heading in visible_level_two_section_names(artifact_text):
+            normalized_anchor = markdown_heading_anchor(heading)
+            if normalized_anchor:
+                normalized_anchor_counts[normalized_anchor] = (
+                    normalized_anchor_counts.get(normalized_anchor, 0) + 1
+                )
+        anchors[filename] = frozenset(
+            anchor
+            for heading, body in sections.items()
+            if heading not in duplicates
+            and heading.casefold() not in interaction_sections
+            and substantive_future_task_field(
+                visible_map_basis_evidence_text(body),
+                minimum_characters=12,
+                minimum_words=2,
+            )
+            if (anchor := markdown_heading_anchor(heading))
+            and normalized_anchor_counts.get(anchor) == 1
+        )
+    return anchors
+
+
+def substantive_future_task_field(
+    value: str,
+    *,
+    minimum_characters: int,
+    minimum_words: int,
+) -> bool:
+    stripped = value.strip()
+    normalized_marker = unicodedata.normalize("NFKD", stripped).casefold()
+
+    def marker_separator(character: str) -> bool:
+        category = unicodedata.category(character)
+        return (
+            character.isspace()
+            or category[0] in {"M", "P", "S", "Z"}
+            or category == "Cf"
+        )
+
+    marker_start = 0
+    marker_end = len(normalized_marker)
+    while (
+        marker_start < marker_end
+        and marker_separator(normalized_marker[marker_start])
+    ):
+        marker_start += 1
+    while (
+        marker_end > marker_start
+        and marker_separator(normalized_marker[marker_end - 1])
+    ):
+        marker_end -= 1
+    normalized_marker = normalized_marker[marker_start:marker_end]
+
+    marker_only = not normalized_marker
+    for marker in (
+        "t" + "bd",
+        "to" + "do",
+        "dra" + "ft",
+        "place" + "holder",
+        "fill" + "me",
+        "na",
+        "unknown",
+    ):
+        position = 0
+        matched = True
+        for marker_index, expected in enumerate(marker):
+            if (
+                position >= len(normalized_marker)
+                or normalized_marker[position] != expected
+            ):
+                matched = False
+                break
+            position += 1
+            if marker_index + 1 < len(marker):
+                while (
+                    position < len(normalized_marker)
+                    and marker_separator(normalized_marker[position])
+                ):
+                    position += 1
+        if matched and (
+            position == len(normalized_marker)
+            or (
+                marker != "unknown"
+                and marker_separator(normalized_marker[position])
+            )
+        ):
+            marker_only = True
+            break
+    return (
+        not marker_only
+        and FUTURE_TASK_DRAFT_MARKER.fullmatch(stripped) is None
+        and FUTURE_TASK_DRAFT_MARKER.fullmatch(normalized_marker) is None
+        and substantive_text(
+            stripped,
+            minimum_characters=minimum_characters,
+            minimum_words=minimum_words,
+        )
+    )
+
+
+def parse_named_section_tables(
+    filename: str,
+    text: str,
+    section_name: str,
+    contracts: dict[str, tuple[str, ...]],
+) -> tuple[dict[str, list[CanonicalTableRow]], list[str]]:
+    """Parse exact canonical tables from one visible, unambiguous H2 section."""
+
+    rendered_text, boundary_headings = top_level_markdown_section_headings(text)
+    lines_with_endings = commonmark_split_lines(rendered_text, keepends=True)
+    lines = [line.rstrip("\r\n") for line in lines_with_endings]
+    line_offsets: list[int] = []
+    offset = 0
+    for line in lines_with_endings:
+        line_offsets.append(offset)
+        offset += len(line)
+    line_index_by_offset = {
+        line_offset: index for index, line_offset in enumerate(line_offsets)
+    }
+    headings: list[tuple[int, int, str]] = []
+    for index, line in enumerate(lines):
+        match = re.fullmatch(r"##\s+(.+?)\s*", line)
+        if match is not None:
+            headings.append((index, line_offsets[index], match.group(1)))
+    section_indexes = [
+        index
+        for index, _heading_offset, observed_name in headings
+        if observed_name == section_name
+    ]
+    if len(section_indexes) != 1:
+        return (
+            {name: [] for name in contracts},
+            [
+                f"{filename} must contain exactly one visible ## {section_name} section"
+            ],
+        )
+    section_start = section_indexes[0] + 1
+    section_heading_offset = line_offsets[section_indexes[0]]
+    next_boundary_offset = next(
+        (
+            heading_start
+            for heading_start, _heading_end, _level, _name in boundary_headings
+            if heading_start > section_heading_offset
+        ),
+        None,
+    )
+    section_end = (
+        line_index_by_offset.get(next_boundary_offset, len(lines))
+        if next_boundary_offset is not None
+        else len(lines)
+    )
+    header_candidates: list[tuple[int, tuple[str, ...]]] = []
+    for index in range(section_start, section_end):
+        cells = markdown_table_cells(lines[index])
+        if cells is None or index + 1 >= section_end:
+            continue
+        separator = markdown_table_cells(lines[index + 1])
+        if (
+            separator is not None
+            and len(separator) == len(cells)
+            and all(
+                re.fullmatch(r":?-{3,}:?", cell) is not None
+                for cell in separator
+            )
+        ):
+            header_candidates.append(
+                (index, tuple(cell.casefold() for cell in cells))
+            )
+
+    normalized_contracts = {
+        name: tuple(column.casefold() for column in columns)
+        for name, columns in contracts.items()
+    }
+    errors: list[str] = []
+    parsed: dict[str, list[CanonicalTableRow]] = {
+        name: [] for name in contracts
+    }
+    canonical_header_indexes: set[int] = set()
+    total_rows = 0
+    for table_name, columns in contracts.items():
+        normalized = normalized_contracts[table_name]
+        matching = [
+            index
+            for index, observed_header in header_candidates
+            if observed_header == normalized
+        ]
+        if len(matching) != 1:
+            errors.append(
+                f"{filename} ## {section_name} must contain exactly one {table_name} "
+                "table with columns: "
+                + " | ".join(columns)
+            )
+            continue
+        header_index = matching[0]
+        canonical_header_indexes.add(header_index)
+        line_index = header_index + 2
+        while line_index < section_end:
+            line = lines[line_index]
+            if not line.strip():
+                break
+            cells = markdown_table_cells(line)
+            if cells is None:
+                break
+            total_rows += 1
+            if total_rows > MAX_INTERACTION_ROWS:
+                errors.append(
+                    f"{filename} interaction tables exceed the row limit"
+                )
+                break
+            line_number = line_index + 1
+            if len(cells) != len(columns):
+                errors.append(
+                    f"{filename} line {line_number} {table_name} row has "
+                    f"{len(cells)} cells; expected {len(columns)}"
+                )
+                line_index += 1
+                continue
+            row = dict(zip(columns, cells))
+            for column, value in row.items():
+                if not value:
+                    errors.append(
+                        f"{filename} line {line_number} has an empty {column} cell"
+                    )
+            parsed[table_name].append(
+                CanonicalTableRow(filename, line_number, row)
+            )
+            line_index += 1
+        if total_rows > MAX_INTERACTION_ROWS:
+            break
+
+    identity_sets = {
+        "question": {"question id", "batch id", "question"},
+        "batch ledger": {"batch id", "sequence", "question ids"},
+        "run economics": {"run id", "block id", "entry"},
+        "future tasks": {"task id", "outcome", "status"},
+    }
+    relevant_identities = [
+        identity_sets[name]
+        for name in contracts
+        if name in identity_sets
+    ]
+    for index, observed_header in header_candidates:
+        if index in canonical_header_indexes:
+            continue
+        observed = set(observed_header)
+        if any(identity.issubset(observed) for identity in relevant_identities):
+            errors.append(
+                f"{filename} ## {section_name} contains a competing interaction table"
+            )
+    return parsed, errors
+
+
+def parse_real_utc_timestamp(value: str) -> datetime | None:
+    if re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+        value,
+    ) is None:
+        return None
+    parsed = parse_evidence_timestamp(value)
+    if parsed is None or evidence_timestamp_is_future(parsed):
+        return None
+    return parsed
+
+
+def opaque_reference_continues_token(
+    character: str,
+    *,
+    before_token: bool,
+) -> bool:
+    if not character:
+        return False
+    category = unicodedata.category(character)
+    if category[0] in {"L", "M", "N"} or category in {"Pc", "Cf"}:
+        return True
+    return character in (
+        {"_", ".", "-", ":"}
+        if before_token
+        else {"_", ".", "-"}
+    )
+
+
+def scan_user_input_references(
+    value: str,
+) -> tuple[tuple[str, ...], int]:
+    references: list[str] = []
+    invalid = 0
+    for prefix in re.finditer(r"USER_INPUT:", value):
+        before = value[prefix.start() - 1] if prefix.start() else ""
+        match = USER_INPUT_PROVENANCE.match(value, prefix.start())
+        if match is None or match.start() != prefix.start():
+            invalid += 1
+            continue
+        after = value[match.end()] if match.end() < len(value) else ""
+        if (
+            opaque_reference_continues_token(before, before_token=True)
+            or opaque_reference_continues_token(after, before_token=False)
+        ):
+            invalid += 1
+            continue
+        references.append(match.group(0))
+    return tuple(references), invalid
+
+
+def opaque_user_input_references(value: str) -> tuple[str, ...]:
+    return scan_user_input_references(value)[0]
+
+
+def scan_unknown_references(
+    value: str,
+) -> tuple[tuple[str, ...], int]:
+    references: list[str] = []
+    invalid = 0
+    for prefix in re.finditer(r"UNKNOWN:", value):
+        before = value[prefix.start() - 1] if prefix.start() else ""
+        match = UNKNOWN_REFERENCE.match(value, prefix.start())
+        if match is None or match.start() != prefix.start():
+            invalid += 1
+            continue
+        after = value[match.end()] if match.end() < len(value) else ""
+        if (
+            opaque_reference_continues_token(before, before_token=True)
+            or opaque_reference_continues_token(after, before_token=False)
+        ):
+            invalid += 1
+            continue
+        references.append(match.group(0))
+    return tuple(references), invalid
+
+
+def opaque_unknown_references(value: str) -> tuple[str, ...]:
+    return scan_unknown_references(value)[0]
+
+
+def opaque_map_basis_tokens(value: str) -> tuple[str, ...]:
+    tokens: list[str] = []
+    for match in MAP_BASIS_TOKEN.finditer(value):
+        before = value[match.start() - 1] if match.start() else ""
+        if opaque_reference_continues_token(before, before_token=True):
+            continue
+        tokens.append(match.group(0))
+    return tuple(tokens)
+
+
+def validate_question_rows(
+    rows: list[CanonicalTableRow],
+) -> tuple[dict[str, CanonicalTableRow], list[str]]:
+    questions: dict[str, CanonicalTableRow] = {}
+    errors: list[str] = []
+    for row in rows:
+        values = row.values
+        prefix = f"{row.filename} line {row.line_number}"
+        question_id = values.get("Question ID", "")
+        batch_id = values.get("Batch ID", "")
+        if IDENTIFIER.fullmatch(question_id) is None:
+            errors.append(f"{prefix} has an invalid Question ID")
+        elif question_id in questions:
+            errors.append(f"{prefix} repeats Question ID {question_id}")
+        else:
+            questions[question_id] = row
+        if IDENTIFIER.fullmatch(batch_id) is None:
+            errors.append(f"{prefix} has an invalid Batch ID")
+        if not substantive_text(
+            values.get("Topic", ""),
+            minimum_characters=2,
+            minimum_words=1,
+        ):
+            errors.append(f"{prefix} has a non-substantive Topic")
+        if not substantive_text(
+            values.get("Question", ""),
+            minimum_characters=8,
+            minimum_words=2,
+        ):
+            errors.append(f"{prefix} has a non-substantive Question")
+
+        options = [values.get(f"Option {letter}", "") for letter in "ABCD"]
+        if values.get("Option D", "") != "Другое — напишу сам":
+            errors.append(
+                f"{prefix} Option D must be exact Option D: Другое — напишу сам"
+            )
+        if any(not option or option == "-" for option in options):
+            errors.append(f"{prefix} Options A-D must be nonempty")
+        if len({option.casefold() for option in options}) != len(options):
+            errors.append(f"{prefix} Options A-D must be distinct")
+
+        state = values.get("Answer state", "")
+        selected = values.get("Selected", "")
+        note = values.get("Free-form note", "")
+        map_effect = values.get("Map effect", "")
+        provenance = values.get("Provenance", "")
+        answered_at = values.get("Answered at", "")
+        if state not in QUESTION_ANSWER_STATES:
+            errors.append(f"{prefix} has an invalid Answer state")
+            continue
+        if state == "ANSWERED":
+            if selected not in {"A", "B", "C", "D"}:
+                errors.append(
+                    f"{prefix} ANSWERED Selected must be one of A, B, C, or D"
+                )
+            if selected == "D" and not substantive_text(
+                note,
+                minimum_characters=3,
+                minimum_words=1,
+            ):
+                errors.append(
+                    f"{prefix} Option D requires a substantive Free-form note"
+                )
+            if selected != "D" and note != "-" and not substantive_text(
+                note,
+                minimum_characters=3,
+                minimum_words=1,
+            ):
+                errors.append(f"{prefix} has a non-substantive Free-form note")
+            if map_effect == "-" or not substantive_text(
+                map_effect,
+                minimum_characters=3,
+                minimum_words=1,
+            ):
+                errors.append(
+                    f"{prefix} ANSWERED requires a substantive Map effect"
+                )
+            if USER_INPUT_PROVENANCE.fullmatch(provenance) is None:
+                errors.append(
+                    f"{prefix} Provenance must be opaque USER_INPUT:<stable-id>"
+                )
+            elif provenance != f"USER_INPUT:{question_id}":
+                errors.append(
+                    f"{prefix} active ANSWERED Provenance must use its stable "
+                    "Question ID"
+                )
+            if parse_real_utc_timestamp(answered_at) is None:
+                errors.append(f"{prefix} Answered at must be a real UTC timestamp")
+        else:
+            if selected != "-":
+                errors.append(
+                    f"{prefix} {state} must use - for Selected; A-D are only for ANSWERED"
+                )
+            if note != "-":
+                errors.append(f"{prefix} {state} must use - for Free-form note")
+            if map_effect != "-":
+                errors.append(
+                    f"{prefix} {state} cannot create an asserted Map effect and must use -"
+                )
+            if state == "SUPERSEDED":
+                if USER_INPUT_PROVENANCE.fullmatch(provenance) is None:
+                    errors.append(
+                        f"{prefix} historical SUPERSEDED row requires opaque Provenance"
+                    )
+                if parse_real_utc_timestamp(answered_at) is None:
+                    errors.append(
+                        f"{prefix} historical SUPERSEDED row requires a real UTC timestamp"
+                    )
+            elif (provenance, answered_at) != ("-", "-"):
+                if (
+                    USER_INPUT_PROVENANCE.fullmatch(provenance) is None
+                    or parse_real_utc_timestamp(answered_at) is None
+                ):
+                    errors.append(
+                        f"{prefix} non-answer Provenance and Answered at must both be - "
+                        "or one opaque USER_INPUT event with a real UTC timestamp"
+                    )
+    return questions, errors
+
+
+def validate_batch_rows(
+    rows: list[CanonicalTableRow],
+    questions: dict[str, CanonicalTableRow],
+    *,
+    draft: bool,
+) -> list[str]:
+    errors: list[str] = []
+    batches: dict[str, CanonicalTableRow] = {}
+    active_rows: list[tuple[int, CanonicalTableRow]] = []
+    referenced_questions: dict[str, str] = {}
+    for row in rows:
+        values = row.values
+        prefix = f"{row.filename} line {row.line_number}"
+        batch_id = values.get("Batch ID", "")
+        status = values.get("Status", "")
+        if IDENTIFIER.fullmatch(batch_id) is None:
+            errors.append(f"{prefix} has an invalid Batch ID")
+        elif batch_id in batches:
+            errors.append(f"{prefix} repeats Batch ID {batch_id}")
+        else:
+            batches[batch_id] = row
+        try:
+            sequence = int(values.get("Sequence", ""))
+        except ValueError:
+            sequence = 0
+            errors.append(f"{prefix} Sequence must be a positive integer")
+        if sequence <= 0:
+            errors.append(f"{prefix} Sequence must be a positive integer")
+
+        raw_question_ids = values.get("Question IDs", "")
+        question_ids = raw_question_ids.split(";")
+        if (
+            not raw_question_ids
+            or any(
+                not question_id or question_id != question_id.strip()
+                for question_id in question_ids
+            )
+            or len(question_ids) != len(set(question_ids))
+            or not 1 <= len(question_ids) <= 3
+        ):
+            errors.append(
+                f"{prefix} Question IDs must list 1-3 distinct IDs separated by ;"
+            )
+        for question_id in question_ids:
+            question = questions.get(question_id)
+            if question is None:
+                errors.append(f"{prefix} has dangling Question ID {question_id}")
+                continue
+            if question.values.get("Batch ID") != batch_id:
+                errors.append(
+                    f"{prefix} Question ID {question_id} names a different Batch ID"
+                )
+            question_state = question.values.get("Answer state")
+            if status == "SUPERSEDED" and question_state != "SUPERSEDED":
+                errors.append(
+                    f"{prefix} SUPERSEDED batch requires historical SUPERSEDED "
+                    f"Question ID {question_id}"
+                )
+            if status != "SUPERSEDED" and question_state == "SUPERSEDED":
+                errors.append(
+                    f"{prefix} active batch cannot assert historical SUPERSEDED "
+                    f"Question ID {question_id}"
+                )
+            previous_batch = referenced_questions.get(question_id)
+            if previous_batch is not None:
+                errors.append(
+                    f"{prefix} Question ID {question_id} is repeated across batches"
+                )
+            else:
+                referenced_questions[question_id] = batch_id
+
+        decision = values.get("Decision", "")
+        provenance = values.get("Decision provenance", "")
+        gaps = values.get("Remaining material gaps", "")
+        unknown_references, malformed_unknown_references = (
+            scan_unknown_references(gaps)
+        )
+        if decision not in BATCH_DECISIONS:
+            errors.append(f"{prefix} has an invalid Decision")
+        if status not in BATCH_STATUSES:
+            errors.append(f"{prefix} has an invalid Status")
+        if status == "ACTIVE" and (not draft or decision != "CONTINUE"):
+            errors.append(
+                f"{prefix} ACTIVE is allowed only for a draft CONTINUE batch"
+            )
+        if decision == "STOP_STABLE":
+            if gaps != "None":
+                errors.append(
+                    f"{prefix} STOP_STABLE requires exact None remaining gaps"
+                )
+            if provenance != "PROTOCOL:SEMANTIC_STOP":
+                errors.append(
+                    f"{prefix} STOP_STABLE requires PROTOCOL:SEMANTIC_STOP provenance"
+                )
+        elif decision == "STOP_USER":
+            if malformed_unknown_references:
+                errors.append(
+                    f"{prefix} STOP_USER has malformed UNKNOWN:<stable-id> remaining gap"
+                )
+            if not unknown_references:
+                errors.append(
+                    f"{prefix} STOP_USER requires a named UNKNOWN remaining gap"
+                )
+            if USER_INPUT_PROVENANCE.fullmatch(provenance) is None:
+                errors.append(
+                    f"{prefix} STOP_USER requires opaque USER_INPUT provenance"
+                )
+        elif decision == "STOP_UNAVAILABLE":
+            if malformed_unknown_references:
+                errors.append(
+                    f"{prefix} STOP_UNAVAILABLE has malformed UNKNOWN:<stable-id> remaining gap"
+                )
+            if not unknown_references:
+                errors.append(
+                    f"{prefix} STOP_UNAVAILABLE requires a named UNKNOWN remaining gap"
+                )
+            if UNAVAILABLE_PROVENANCE.fullmatch(provenance) is None:
+                errors.append(
+                    f"{prefix} STOP_UNAVAILABLE requires opaque UNAVAILABLE provenance"
+                )
+        elif decision == "CONTINUE":
+            if gaps in {"None", "-"} or not substantive_text(
+                gaps,
+                minimum_characters=3,
+                minimum_words=1,
+            ):
+                errors.append(
+                    f"{prefix} CONTINUE requires a substantive remaining material gap"
+                )
+            if malformed_unknown_references:
+                errors.append(
+                    f"{prefix} CONTINUE has malformed UNKNOWN:<stable-id> remaining gap"
+                )
+            if not unknown_references:
+                errors.append(
+                    f"{prefix} CONTINUE requires a named UNKNOWN remaining gap"
+                )
+            if (
+                USER_INPUT_PROVENANCE.fullmatch(provenance) is None
+                and MATERIAL_GAP_PROVENANCE.fullmatch(provenance) is None
+            ):
+                errors.append(
+                    f"{prefix} CONTINUE requires USER_INPUT or PROTOCOL:MATERIAL_GAP provenance"
+                )
+        if status != "SUPERSEDED":
+            active_rows.append((sequence, row))
+
+    for question_id, question in questions.items():
+        if question_id not in referenced_questions:
+            errors.append(
+                f"{question.filename} line {question.line_number} Question ID "
+                f"{question_id} is not assigned to a batch ledger row"
+            )
+    observed_sequences = [sequence for sequence, _row in active_rows]
+    expected_sequences = list(range(1, len(active_rows) + 1))
+    if observed_sequences != expected_sequences:
+        errors.append(
+            f"{rows[0].filename if rows else 'alignment'} batch Sequences must be "
+            "contiguous and ordered from 1"
+        )
+    stop_indexes = [
+        index
+        for index, (_sequence, row) in enumerate(active_rows)
+        if row.values.get("Decision", "").startswith("STOP_")
+    ]
+    if stop_indexes and stop_indexes[-1] != len(active_rows) - 1:
+        errors.append("no active batch may appear after a STOP decision")
+    if not draft:
+        if not questions:
+            errors.append("alignment completion requires at least one question row")
+        if not active_rows:
+            errors.append("alignment completion requires at least one completed batch")
+        if len(stop_indexes) != 1 or (
+            stop_indexes and stop_indexes[0] != len(active_rows) - 1
+        ):
+            errors.append(
+                "alignment completion requires exactly one final STOP decision"
+            )
+        if any(
+            row.values.get("Status") == "ACTIVE"
+            for _sequence, row in active_rows
+        ):
+            errors.append("alignment completion cannot retain an ACTIVE batch")
+    return errors
+
+
+def validate_alignment_section(
+    filename: str,
+    text: str,
+    section_name: str,
+    *,
+    draft: bool,
+) -> tuple[list[CanonicalTableRow], list[CanonicalTableRow], list[str]]:
+    tables, errors = parse_named_section_tables(
+        filename,
+        text,
+        section_name,
+        {
+            "question": QUESTION_TABLE_COLUMNS,
+            "batch ledger": BATCH_LEDGER_COLUMNS,
+        },
+    )
+    question_rows = tables["question"]
+    batch_rows = tables["batch ledger"]
+    questions, question_errors = validate_question_rows(question_rows)
+    errors.extend(question_errors)
+    errors.extend(validate_batch_rows(batch_rows, questions, draft=draft))
+    return question_rows, batch_rows, errors
+
+
+def validate_run_economics_section(
+    filename: str,
+    text: str,
+    *,
+    draft: bool,
+) -> tuple[list[CanonicalTableRow], list[str]]:
+    tables, errors = parse_named_section_tables(
+        filename,
+        text,
+        "Run Economics",
+        {"run economics": RUN_ECONOMICS_COLUMNS},
+    )
+    rows = tables["run economics"]
+    entries: dict[tuple[str, str, str], CanonicalTableRow] = {}
+    parsed_times: dict[tuple[str, str, str], datetime] = {}
+    valid_pre: dict[tuple[str, str], CanonicalTableRow] = {}
+    valid_post: dict[tuple[str, str], CanonicalTableRow] = {}
+    for row in rows:
+        values = row.values
+        prefix = f"{filename} line {row.line_number}"
+        run_id = values.get("Run ID", "")
+        block_id = values.get("Block ID", "")
+        entry = values.get("Entry", "")
+        if IDENTIFIER.fullmatch(run_id) is None:
+            errors.append(f"{prefix} has an invalid Run ID")
+        if IDENTIFIER.fullmatch(block_id) is None:
+            errors.append(f"{prefix} has an invalid Block ID")
+        if entry not in {"PRE", "POST"}:
+            errors.append(f"{prefix} Entry must be PRE or POST")
+        entry_key = (run_id, block_id, entry)
+        if entry_key in entries:
+            errors.append(
+                f"{prefix} repeats {entry} for Run ID {run_id} Block ID {block_id}"
+            )
+        else:
+            entries[entry_key] = row
+        if values.get("Unit") != "MODEL_TOKENS":
+            errors.append(f"{prefix} Unit must be MODEL_TOKENS")
+        recorded_at = parse_real_utc_timestamp(values.get("Recorded at", ""))
+        if recorded_at is None:
+            errors.append(f"{prefix} Recorded at must be a real UTC timestamp")
+        else:
+            parsed_times[entry_key] = recorded_at
+        if not substantive_text(
+            values.get("Block", ""),
+            minimum_characters=4,
+            minimum_words=1,
+        ):
+            errors.append(f"{prefix} has a non-substantive Block")
+        narrative_columns = (
+            "Block",
+            "Basis",
+            "Model tier and effort",
+            "Telemetry",
+        )
+        per_field_conversions = 0
+        for column in narrative_columns:
+            if token_quota_conversion_claim(values.get(column, "")):
+                per_field_conversions += 1
+                errors.append(
+                    f"{prefix} {column} must not infer or convert a quota "
+                    "percentage from model tokens"
+                )
+        combined_narrative = " ".join(
+            values.get(column, "")
+            for column in narrative_columns
+        )
+        if (
+            per_field_conversions == 0
+            and token_quota_conversion_claim(combined_narrative)
+        ):
+            errors.append(
+                f"{prefix} Run Economics narrative fields must not jointly "
+                "combine model-token terms with a quota percentage"
+            )
+
+        if entry == "PRE":
+            forecast: list[int] = []
+            for column in ("Min", "Typical", "Max"):
+                try:
+                    amount = int(values.get(column, ""))
+                except ValueError:
+                    amount = 0
+                    errors.append(
+                        f"{prefix} PRE {column} must be a positive integer"
+                    )
+                if amount <= 0:
+                    errors.append(
+                        f"{prefix} PRE {column} must be a positive integer"
+                    )
+                forecast.append(amount)
+            if len(forecast) == 3 and not (
+                forecast[0] <= forecast[1] <= forecast[2]
+            ):
+                errors.append(f"{prefix} PRE requires Min <= Typical <= Max")
+            if not substantive_text(
+                values.get("Basis", ""),
+                minimum_characters=4,
+                minimum_words=1,
+            ):
+                errors.append(f"{prefix} PRE requires a substantive Basis")
+            if not substantive_text(
+                values.get("Model tier and effort", ""),
+                minimum_characters=4,
+                minimum_words=1,
+            ):
+                errors.append(
+                    f"{prefix} PRE requires a substantive Model tier and effort"
+                )
+            for column in (
+                "Input",
+                "Output",
+                "Reasoning",
+                "Total",
+                "Telemetry",
+                "Variance vs typical",
+            ):
+                if values.get(column) != "UNMEASURED":
+                    errors.append(
+                        f"{prefix} PRE {column} must be UNMEASURED"
+                    )
+            if values.get("Status") != "MODELLED":
+                errors.append(f"{prefix} PRE Status must be MODELLED")
+            valid_pre[(run_id, block_id)] = row
+        elif entry == "POST":
+            for column in ("Min", "Typical", "Max"):
+                if values.get(column) != "UNMEASURED":
+                    errors.append(
+                        f"{prefix} POST {column} must be UNMEASURED"
+                    )
+            if values.get("Basis") != f"PRE:{block_id}":
+                errors.append(
+                    f"{prefix} POST Basis must be PRE:{block_id}"
+                )
+            model_tier = values.get("Model tier and effort", "")
+            if model_tier != "UNMEASURED" and not substantive_text(
+                model_tier,
+                minimum_characters=4,
+                minimum_words=1,
+            ):
+                errors.append(
+                    f"{prefix} POST Model tier and effort must be substantive "
+                    "or UNMEASURED"
+                )
+            usage_columns = (
+                "Input",
+                "Output",
+                "Reasoning",
+                "Total",
+                "Telemetry",
+                "Variance vs typical",
+            )
+            usage_values = [values.get(column, "") for column in usage_columns]
+            if all(value == "UNMEASURED" for value in usage_values):
+                if values.get("Status") != "UNMEASURED":
+                    errors.append(
+                        f"{prefix} all UNMEASURED POST data requires Status UNMEASURED"
+                    )
+            else:
+                try:
+                    total = int(values.get("Total", ""))
+                except ValueError:
+                    errors.append(
+                        f"{prefix} POST must use an exact host Total or all UNMEASURED"
+                    )
+                    total = -1
+                if total < 0:
+                    errors.append(
+                        f"{prefix} POST Total must be a non-negative host integer"
+                    )
+                component_values: list[int | None] = []
+                for column in ("Input", "Output", "Reasoning"):
+                    raw = values.get(column, "")
+                    if raw == "UNMEASURED":
+                        component_values.append(None)
+                        continue
+                    try:
+                        component = int(raw)
+                    except ValueError:
+                        component = -1
+                    if component < 0:
+                        errors.append(
+                            f"{prefix} POST {column} must be a non-negative integer "
+                            "or UNMEASURED"
+                        )
+                    component_values.append(component)
+                if (
+                    total >= 0
+                    and all(component is not None for component in component_values)
+                    and sum(int(component) for component in component_values) != total
+                ):
+                    errors.append(
+                        f"{prefix} POST measured components do not sum to Total"
+                    )
+                telemetry = values.get("Telemetry", "")
+                if telemetry == "UNMEASURED" or not substantive_text(
+                    telemetry,
+                    minimum_characters=4,
+                    minimum_words=1,
+                ):
+                    errors.append(
+                        f"{prefix} measured POST requires a substantive host Telemetry source"
+                    )
+                if values.get("Status") != "MEASURED":
+                    errors.append(f"{prefix} measured POST Status must be MEASURED")
+            valid_post[(run_id, block_id)] = row
+
+    paired = set(valid_pre).intersection(valid_post)
+    for key in sorted(set(valid_post) - set(valid_pre)):
+        post = valid_post[key]
+        errors.append(
+            f"{filename} line {post.line_number} POST has no matching PRE for "
+            f"Run ID {key[0]} Block ID {key[1]}"
+        )
+    if not draft:
+        for key in sorted(set(valid_pre) - set(valid_post)):
+            pre = valid_pre[key]
+            errors.append(
+                f"{filename} line {pre.line_number} PRE has no matching POST for "
+                f"Run ID {key[0]} Block ID {key[1]}"
+            )
+    for key in paired:
+        pre = valid_pre[key]
+        post = valid_post[key]
+        pre_time = parsed_times.get((key[0], key[1], "PRE"))
+        post_time = parsed_times.get((key[0], key[1], "POST"))
+        if (
+            pre_time is not None
+            and post_time is not None
+            and pre_time >= post_time
+        ):
+            errors.append(
+                f"{filename} PRE must precede POST chronologically for "
+                f"Run ID {key[0]} Block ID {key[1]}"
+            )
+        raw_total = post.values.get("Total", "")
+        if raw_total != "UNMEASURED":
+            try:
+                total = int(raw_total)
+                typical = int(pre.values["Typical"])
+            except ValueError:
+                pass
+            else:
+                raw_variance = post.values.get("Variance vs typical", "")
+                if "%" in raw_variance:
+                    errors.append(
+                        f"{filename} line {post.line_number} Variance vs typical "
+                        "must be an integer, not a percentage"
+                    )
+                else:
+                    try:
+                        variance = int(raw_variance)
+                    except ValueError:
+                        variance = total - typical + 1
+                    if variance != total - typical:
+                        errors.append(
+                            f"{filename} line {post.line_number} Variance vs typical "
+                            "must equal Total - PRE Typical"
+                        )
+        if pre.values.get("Block") != post.values.get("Block"):
+            errors.append(
+                f"{filename} PRE and POST Block must match for "
+                f"Run ID {key[0]} Block ID {key[1]}"
+            )
+    if not draft and not paired:
+        errors.append(
+            f"{filename} completion requires at least one valid PRE/POST Run Economics pair"
+        )
+    return rows, errors
+
+
+def validate_future_tasks_section(
+    filename: str,
+    text: str,
+    inventory: SafeInventory,
+    *,
+    active_answers: set[str],
+    draft: bool,
+    mode: str,
+    artifact_texts: dict[str, str] | None = None,
+) -> tuple[list[CanonicalTableRow], list[str]]:
+    tables, errors = parse_named_section_tables(
+        filename,
+        text,
+        "Future Tasks",
+        {"future tasks": FUTURE_TASKS_COLUMNS},
+    )
+    rows = tables["future tasks"]
+    seen_ids: set[str] = set()
+    active_count = 0
+    visible_map_anchors = visible_map_basis_anchors(
+        artifact_texts or {},
+        mode,
+    )
+    for row in rows:
+        values = row.values
+        prefix = f"{filename} line {row.line_number}"
+        task_id = values.get("Task ID", "")
+        if IDENTIFIER.fullmatch(task_id) is None:
+            errors.append(f"{prefix} has an invalid Task ID")
+        elif task_id in seen_ids:
+            errors.append(f"{prefix} repeats Task ID {task_id}")
+        seen_ids.add(task_id)
+        if values.get("Claim kind") != "TARGET":
+            errors.append(f"{prefix} Future Task Claim kind must be TARGET")
+        status = values.get("Status", "")
+        if status not in FUTURE_TASK_STATUSES:
+            errors.append(f"{prefix} has an invalid Future Task Status")
+        if status in {"READY", "BLOCKED"}:
+            active_count += 1
+        if not substantive_text(
+            values.get("Outcome", ""),
+            minimum_characters=8,
+            minimum_words=2,
+        ):
+            errors.append(f"{prefix} has a non-substantive Outcome")
+
+        combined = " ".join(values.values())
+        answer_refs, malformed_answer_refs = scan_user_input_references(combined)
+        if malformed_answer_refs:
+            errors.append(
+                f"{prefix} has malformed answer provenance "
+                "USER_INPUT:<Question ID>"
+            )
+        dangling = sorted(set(answer_refs) - active_answers)
+        for answer_ref in dangling:
+            errors.append(
+                f"{prefix} has dangling answer provenance {answer_ref}"
+            )
+        if status in {"READY", "BLOCKED"}:
+            basis = values.get("Basis", "")
+            required_fields = {
+                "Outcome": (8, 2),
+                "Basis": (4, 1),
+                "Affected areas": (2, 1),
+                "Scope": (4, 1),
+                "Non-goals": (4, 1),
+                "Acceptance criteria": (8, 2),
+                "Dependencies and unknowns": (4, 1),
+                "Risks": (4, 1),
+                "Verification": (8, 2),
+            }
+            for field, (minimum_characters, minimum_words) in required_fields.items():
+                if not substantive_future_task_field(
+                    values.get(field, ""),
+                    minimum_characters=minimum_characters,
+                    minimum_words=minimum_words,
+                ):
+                    errors.append(
+                        f"{prefix} {status} {field} must be substantive and "
+                        "must not retain a draft marker"
+                    )
+            basis_answer_refs = opaque_user_input_references(basis)
+            requires_active_answer = (
+                status == "READY"
+                or bool(basis_answer_refs)
+            )
+            if requires_active_answer and (
+                not basis_answer_refs
+                or not any(
+                    answer_ref in active_answers
+                    for answer_ref in basis_answer_refs
+                )
+            ):
+                errors.append(
+                    f"{prefix} {status} Basis requires active answer provenance "
+                    "USER_INPUT:<Question ID>"
+                )
+            source_locations = markdown_source_locations(
+                basis,
+                inventory.members,
+            )
+            has_safe_source = any(
+                relative in inventory.members
+                for relative, _start, _end in source_locations
+            )
+            map_tokens = opaque_map_basis_tokens(basis)
+            visible_map_references = 0
+            for map_token in map_tokens:
+                map_reference = MAP_BASIS_REFERENCE.fullmatch(map_token)
+                if map_reference is None:
+                    errors.append(
+                        f"{prefix} {status} Basis has an invalid visible map anchor "
+                        f"{map_token}"
+                    )
+                    continue
+                map_filename = map_reference.group("filename")
+                map_anchor = map_reference.group("anchor")
+                if (
+                    map_filename not in MODE_FILES[mode]
+                    or map_anchor not in visible_map_anchors.get(map_filename, frozenset())
+                ):
+                    errors.append(
+                        f"{prefix} {status} Basis has no visible map anchor "
+                        f"{map_token}"
+                    )
+                    continue
+                visible_map_references += 1
+            has_safe_map = visible_map_references > 0
+            if not has_safe_source and not has_safe_map:
+                errors.append(
+                    f"{prefix} {status} Basis requires a safe project-relative source "
+                    "or map basis"
+                )
+        if status == "BLOCKED":
+            unknown_references, malformed_unknown_references = (
+                scan_unknown_references(
+                    values.get("Dependencies and unknowns", "")
+                )
+            )
+            if malformed_unknown_references:
+                errors.append(
+                    f"{prefix} BLOCKED has malformed UNKNOWN:<stable-id> in "
+                    "Dependencies and unknowns"
+                )
+            if not unknown_references:
+                errors.append(
+                    f"{prefix} BLOCKED requires a named UNKNOWN in "
+                    "Dependencies and unknowns"
+                )
+    if not draft and active_count == 0:
+        errors.append(
+            f"{filename} completion requires at least one active READY or BLOCKED Future Task"
+        )
+    return rows, errors
+
+
+def visible_level_two_section_names(text: str) -> tuple[str, ...]:
+    return tuple(
+        name
+        for _start, _end, level, name
+        in top_level_markdown_section_headings(text)[1]
+        if level == 2
+    )
+
+
+def visible_interaction_table_headers(
+    text: str,
+) -> tuple[tuple[str | None, tuple[str, ...]], ...]:
+    rendered_text, headings = top_level_markdown_section_headings(text)
+    lines_with_endings = commonmark_split_lines(rendered_text, keepends=True)
+    lines = [line.rstrip("\r\n") for line in lines_with_endings]
+    heading_by_offset = {
+        start: (level, name)
+        for start, _end, level, name in headings
+    }
+    current_section: str | None = None
+    headers: list[tuple[str | None, tuple[str, ...]]] = []
+    offset = 0
+    for index, line in enumerate(lines):
+        heading = heading_by_offset.get(offset)
+        offset += len(lines_with_endings[index])
+        if heading is not None:
+            level, name = heading
+            current_section = name if level == 2 else None
+            continue
+        cells = markdown_table_cells(line)
+        if cells is None or index + 1 >= len(lines):
+            continue
+        separator = markdown_table_cells(lines[index + 1])
+        if (
+            separator is not None
+            and len(separator) == len(cells)
+            and all(
+                re.fullmatch(r":?-{3,}:?", cell) is not None
+                for cell in separator
+            )
+        ):
+            headers.append(
+                (current_section, tuple(cell.casefold() for cell in cells))
+            )
+    return tuple(headers)
+
+
+def validate_interaction_documents(
+    mode: str,
+    artifact_texts: dict[str, str],
+    inventory: SafeInventory,
+    *,
+    draft: bool,
+) -> tuple[dict[str, list[CanonicalTableRow]], list[str]]:
+    placements = INTERACTION_PLACEMENT[mode]
+    errors: list[str] = []
+    for filename, text in artifact_texts.items():
+        for section_name in visible_level_two_section_names(text):
+            expected_filename = placements.get(section_name)
+            if expected_filename is not None and expected_filename != filename:
+                errors.append(
+                    f"## {section_name} must be in {expected_filename} for {mode}, "
+                    f"not {filename}"
+                )
+        exact_table_sections = {
+            tuple(column.casefold() for column in QUESTION_TABLE_COLUMNS): {
+                "Start Alignment",
+                "Finish Alignment",
+            },
+            tuple(column.casefold() for column in BATCH_LEDGER_COLUMNS): {
+                "Start Alignment",
+                "Finish Alignment",
+            },
+            tuple(column.casefold() for column in RUN_ECONOMICS_COLUMNS): {
+                "Run Economics",
+            },
+            tuple(column.casefold() for column in FUTURE_TASKS_COLUMNS): {
+                "Future Tasks",
+            },
+        }
+        interaction_identities = (
+            {"question id", "batch id", "question"},
+            {"batch id", "sequence", "question ids"},
+            {"run id", "block id", "entry"},
+            {"task id", "outcome", "status"},
+        )
+        for section_name, header in visible_interaction_table_headers(text):
+            allowed_sections = exact_table_sections.get(header)
+            if allowed_sections is not None:
+                if (
+                    section_name not in allowed_sections
+                    or placements.get(section_name) != filename
+                ):
+                    errors.append(
+                        f"{filename} contains a misplaced or competing interaction table"
+                    )
+                continue
+            observed_columns = set(header)
+            if any(
+                identity.issubset(observed_columns)
+                for identity in interaction_identities
+            ):
+                errors.append(
+                    f"{filename} contains a malformed competing interaction table"
+                )
+
+    start_filename = placements["Start Alignment"]
+    finish_filename = placements["Finish Alignment"]
+    economics_filename = placements["Run Economics"]
+    future_filename = placements["Future Tasks"]
+    start_questions, _start_batches, start_errors = validate_alignment_section(
+        start_filename,
+        artifact_texts.get(start_filename, ""),
+        "Start Alignment",
+        draft=draft,
+    )
+    finish_questions, _finish_batches, finish_errors = validate_alignment_section(
+        finish_filename,
+        artifact_texts.get(finish_filename, ""),
+        "Finish Alignment",
+        draft=draft,
+    )
+    economics_rows, economics_errors = validate_run_economics_section(
+        economics_filename,
+        artifact_texts.get(economics_filename, ""),
+        draft=draft,
+    )
+    errors.extend(start_errors)
+    errors.extend(finish_errors)
+    errors.extend(economics_errors)
+
+    all_question_rows = start_questions + finish_questions
+    seen_question_ids: set[str] = set()
+    seen_provenance: set[str] = set()
+    active_answers: set[str] = set()
+    for row in all_question_rows:
+        question_id = row.values.get("Question ID", "")
+        if question_id in seen_question_ids:
+            errors.append(
+                f"{row.filename} line {row.line_number} repeats global Question ID "
+                f"{question_id}"
+            )
+        seen_question_ids.add(question_id)
+        provenance = row.values.get("Provenance", "")
+        if USER_INPUT_PROVENANCE.fullmatch(provenance) is not None:
+            if provenance in seen_provenance:
+                errors.append(
+                    f"{row.filename} line {row.line_number} repeats opaque Provenance "
+                    f"{provenance}"
+                )
+            seen_provenance.add(provenance)
+            if (
+                row.values.get("Answer state") == "ANSWERED"
+                and provenance == f"USER_INPUT:{question_id}"
+            ):
+                active_answers.add(provenance)
+
+    future_rows, future_errors = validate_future_tasks_section(
+        future_filename,
+        artifact_texts.get(future_filename, ""),
+        inventory,
+        active_answers=active_answers,
+        draft=draft,
+        mode=mode,
+        artifact_texts=artifact_texts,
+    )
+    errors.extend(future_errors)
+    return (
+        {
+            INTERACTION_START_REGISTRY: start_questions,
+            INTERACTION_FINISH_REGISTRY: finish_questions,
+            INTERACTION_RUN_ECONOMICS_REGISTRY: economics_rows,
+            INTERACTION_FUTURE_TASKS_REGISTRY: future_rows,
+        },
+        errors,
+    )
 
 
 def normalized_markdown_prose(value: str) -> str:
@@ -5032,6 +6895,7 @@ def validate_command(args: argparse.Namespace) -> int:
         bounded_artifacts.append("SOURCE_SNAPSHOT.json")
     errors.extend(validate_artifact_resource_bounds(artifacts, bounded_artifacts))
     registries: dict[str, list[CanonicalTableRow]] = {}
+    artifact_texts: dict[str, str] = {}
     if args.mode is not None:
         try:
             declared_mode = detect_mode(artifacts)
@@ -5057,6 +6921,7 @@ def validate_command(args: argparse.Namespace) -> int:
             except AtlasError:
                 errors.append(f"cannot safely read required artifact: {name}")
                 continue
+            artifact_texts[name] = text
             for marker in REQUIRED_MARKERS.get(name, ()):
                 if marker not in text:
                     errors.append(f"missing required section or marker in {name}: {marker}")
@@ -5082,6 +6947,14 @@ def validate_command(args: argparse.Namespace) -> int:
                 errors.extend(validate_quick_completion(text, safe_inventory))
             if name == "ATLAS_INDEX.md" and mode != "QUICK" and not args.draft:
                 errors.extend(validate_depth_decision(text, "Scope and Coverage"))
+    interaction_registries, interaction_errors = validate_interaction_documents(
+        mode,
+        artifact_texts,
+        safe_inventory,
+        draft=args.draft,
+    )
+    registries.update(interaction_registries)
+    errors.extend(interaction_errors)
     traceability_state = artifact_state(
         artifacts, PurePosixPath("TRACEABILITY.tsv")
     )
@@ -5967,7 +7840,7 @@ MARKDOWN_COMPLETE_HTML_TAG = re.compile(
     r"|</[A-Za-z][A-Za-z0-9-]*[ \t]*>"
     r")"
 )
-MARKDOWN_LAZY_CONTINUATION_MARKER = "\0"
+MARKDOWN_NON_TOP_LEVEL_MARKER = "\0"
 
 
 def markdown_html_block_start(candidate: str) -> tuple[str, str, bool] | None:
@@ -6049,6 +7922,7 @@ def markdown_evidence_text(
     preserve_html_tags: bool = True,
     preserve_reference_definitions: bool = False,
     mark_lazy_continuations: bool = False,
+    mark_container_continuations: bool = False,
 ) -> str:
     """Neutralize non-rendered CommonMark code and raw HTML blocks."""
 
@@ -6228,8 +8102,17 @@ def markdown_evidence_text(
         if paragraph_active and additional_containers:
             if not can_interrupt_paragraph:
                 evidence.append(
-                    MARKDOWN_LAZY_CONTINUATION_MARKER + line
-                    if mark_lazy_continuations and line_is_lazy and body.strip()
+                    MARKDOWN_NON_TOP_LEVEL_MARKER + line
+                    if (
+                        body.strip()
+                        and (
+                            (mark_lazy_continuations and line_is_lazy)
+                            or (
+                                mark_container_continuations
+                                and bool(inherited_containers)
+                            )
+                        )
+                    )
                     else line
                 )
                 paragraph_active = True
@@ -6552,12 +8435,20 @@ def markdown_evidence_text(
             paragraph_was_active=paragraph_was_active,
         )
         evidence.append(
-            MARKDOWN_LAZY_CONTINUATION_MARKER + line
+            MARKDOWN_NON_TOP_LEVEL_MARKER + line
             if (
-                mark_lazy_continuations
-                and line_is_lazy
-                and next_paragraph_active
-                and body.strip()
+                body.strip()
+                and (
+                    (
+                        mark_container_continuations
+                        and bool(inherited_containers)
+                    )
+                    or (
+                        mark_lazy_continuations
+                        and line_is_lazy
+                        and next_paragraph_active
+                    )
+                )
             )
             else line
         )
@@ -6566,13 +8457,18 @@ def markdown_evidence_text(
     return "".join(evidence)
 
 
-def markdown_rendered_block_text(text: str) -> str:
+def markdown_rendered_block_text(
+    text: str,
+    *,
+    mark_container_continuations: bool = False,
+) -> str:
     """Return visible Markdown block source with non-rendered blocks neutralized."""
 
     return markdown_evidence_text(
         text,
         preserve_html_tags=False,
         mark_lazy_continuations=True,
+        mark_container_continuations=mark_container_continuations,
     )
 
 
@@ -7374,7 +9270,10 @@ def add_project_arguments(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="atlas.py",
-        description="Select, initialize, inventory, validate, and snapshot a Project Atlas without network access.",
+        description=(
+            "Select, estimate, initialize, inventory, validate, and snapshot "
+            "a Project Atlas without network access."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -7420,6 +9319,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_project_arguments(inventory_parser)
     inventory_parser.add_argument("--output", type=Path, help="write JSON to this file instead of stdout")
     inventory_parser.set_defaults(handler=inventory_command)
+
+    estimate_parser = subparsers.add_parser(
+        "estimate-budget",
+        help="model a host-neutral per-block budget from safe inventory metadata",
+    )
+    add_project_arguments(estimate_parser)
+    estimate_parser.add_argument("--mode", type=parse_mode, required=True, help="mapping depth")
+    estimate_parser.set_defaults(handler=estimate_budget_command)
 
     init_parser = subparsers.add_parser("init", help="create only missing atlas files from mode templates")
     add_project_arguments(init_parser)

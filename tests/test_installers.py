@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import ast
 import os
 import signal
 import shutil
+import stat
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from tests.support import (
     CLAUDE_ADAPTER,
@@ -22,6 +26,29 @@ from tests.support import (
 
 
 class InstallerContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self._trusted_python_temp = tempfile.TemporaryDirectory(
+            prefix="atlas trusted test python "
+        )
+        self.addCleanup(self._trusted_python_temp.cleanup)
+        trusted_bin = Path(self._trusted_python_temp.name) / "bin"
+        self.write_fake_command(
+            trusted_bin,
+            "python3",
+            'exec "$ATLAS_TEST_MATRIX_PYTHON" "$@"',
+        )
+        trusted_bin.chmod(0o700)
+        environment = mock.patch.dict(
+            os.environ,
+            {
+                "ATLAS_TEST_MATRIX_PYTHON": sys.executable,
+                "PATH": f"{trusted_bin}{os.pathsep}{os.environ['PATH']}",
+            },
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def assert_bundle_installed(self, source: Path, target: Path) -> None:
         assert_directory(self, source)
         assert_directory(self, target)
@@ -66,6 +93,17 @@ class InstallerContractTests(unittest.TestCase):
 
     def write_fake_diff(self, directory: Path, body: str) -> Path:
         return self.write_fake_command(directory, "diff", body)
+
+    def require_case_alias(self, path: Path) -> Path:
+        alias = path.with_name(path.name.swapcase())
+        self.assertNotEqual(alias, path, "case-alias probe did not change the path spelling")
+        try:
+            aliases_same_file = alias.samefile(path)
+        except OSError:
+            aliases_same_file = False
+        if not aliases_same_file:
+            self.skipTest("case-alias regression requires a case-insensitive filesystem")
+        return alias
 
     def write_failing_find(self, directory: Path) -> Path:
         directory.mkdir(parents=True, exist_ok=True)
@@ -321,6 +359,91 @@ class InstallerContractTests(unittest.TestCase):
             self.assertIn("unsafe", result.stderr.lower())
             self.assertFalse(canary.exists(), "repository-local diff was launched")
 
+    def test_installers_reject_case_aliased_repository_python_from_path(self) -> None:
+        installers = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        for adapter_name, relative_script, config_variable in installers:
+            with self.subTest(adapter=adapter_name), tempfile.TemporaryDirectory(
+                prefix=f"atlas case alias python {adapter_name} "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                repository = root / "Project-Atlas-Case"
+                shutil.copytree(
+                    REPO_ROOT,
+                    repository,
+                    ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", ".scratch"),
+                )
+                alias = self.require_case_alias(repository)
+                repository_bin = repository / "untrusted-bin"
+                canary = root / f"{adapter_name}-python-executed"
+                self.write_fake_command(
+                    repository_bin,
+                    "python3",
+                    f": > {str(canary)!r}\nexit 97",
+                )
+                config = root / f"{adapter_name} config"
+                result = run_command(
+                    [repository / relative_script],
+                    env={
+                        "HOME": str(root / "home"),
+                        config_variable: str(config),
+                        "PATH": (
+                            f"{alias / 'untrusted-bin'}"
+                            f"{os.pathsep}{os.environ['PATH']}"
+                        ),
+                    },
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unsafe", result.stderr.lower())
+                self.assertFalse(
+                    canary.exists(),
+                    f"{adapter_name} installer launched case-aliased repository python",
+                )
+
+    def test_installers_reject_case_aliased_repository_diff_from_path(self) -> None:
+        installers = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        for adapter_name, relative_script, config_variable in installers:
+            with self.subTest(adapter=adapter_name), tempfile.TemporaryDirectory(
+                prefix=f"atlas case alias diff {adapter_name} "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                repository = root / "Project-Atlas-Case"
+                shutil.copytree(
+                    REPO_ROOT,
+                    repository,
+                    ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", ".scratch"),
+                )
+                alias = self.require_case_alias(repository)
+                repository_bin = repository / "untrusted-bin"
+                canary = root / f"{adapter_name}-diff-executed"
+                self.write_fake_diff(
+                    repository_bin,
+                    f": > {str(canary)!r}\nexit 97",
+                )
+                config = root / f"{adapter_name} config"
+                result = run_command(
+                    [repository / relative_script],
+                    env={
+                        "HOME": str(root / "home"),
+                        config_variable: str(config),
+                        "PATH": (
+                            f"{alias / 'untrusted-bin'}"
+                            f"{os.pathsep}{os.environ['PATH']}"
+                        ),
+                    },
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unsafe", result.stderr.lower())
+                self.assertFalse(
+                    canary.exists(),
+                    f"{adapter_name} installer launched case-aliased repository diff",
+                )
+
     def test_installers_reject_outer_repository_diff_from_path(self) -> None:
         cases = (
             ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
@@ -357,6 +480,738 @@ class InstallerContractTests(unittest.TestCase):
                     canary.exists(),
                     f"{adapter_name} installer launched outer-repository diff",
                 )
+
+    def test_installers_accept_safe_tools_from_unrelated_repository(self) -> None:
+        """A separate Homebrew-style checkout is not part of the Atlas trust boundary."""
+
+        cases = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        real_diff = shutil.which("diff")
+        self.assertIsNotNone(real_diff, "unrelated-repository regression requires system diff")
+        for adapter_name, relative_script, config_variable in cases:
+            with self.subTest(adapter=adapter_name), tempfile.TemporaryDirectory(
+                prefix=f"atlas unrelated host tools {adapter_name} "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                host_repository = root / "unrelated-host-tools"
+                (host_repository / ".git").mkdir(parents=True)
+                python_bin = host_repository / "python-bin"
+                diff_bin = host_repository / "diff-bin"
+                python_canary = root / f"{adapter_name}-python-executed"
+                diff_canary = root / f"{adapter_name}-diff-executed"
+                self.write_fake_command(
+                    python_bin,
+                    "python3",
+                    (
+                        f": > {str(python_canary)!r}\n"
+                        'exec "$ATLAS_TEST_MATRIX_PYTHON" "$@"'
+                    ),
+                )
+                self.write_fake_diff(
+                    diff_bin,
+                    (
+                        f": > {str(diff_canary)!r}\n"
+                        'exec "$ATLAS_TEST_REAL_DIFF" "$@"'
+                    ),
+                )
+                config = root / f"{adapter_name} config"
+                result = run_command(
+                    [relative_script],
+                    env={
+                        "HOME": str(root / "home"),
+                        config_variable: str(config),
+                        "PATH": (
+                            f"{python_bin}{os.pathsep}{diff_bin}"
+                            f"{os.pathsep}{os.environ['PATH']}"
+                        ),
+                        "ATLAS_TEST_REAL_DIFF": str(real_diff),
+                    },
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(python_canary.is_file())
+                self.assertTrue(diff_canary.is_file())
+                self.assertTrue(
+                    (config / "skills" / "map-project" / "SKILL.md").is_file()
+                )
+
+    def test_installers_accept_python_from_standard_homebrew_cellar(self) -> None:
+        """A standard Homebrew Cellar may be group-managed by the invoking user."""
+
+        homebrew_bins = (
+            Path("/opt/homebrew/bin"),
+            Path("/usr/local/bin"),
+            Path("/home/linuxbrew/.linuxbrew/bin"),
+        )
+        homebrew_python: Path | None = None
+        homebrew_cellar: Path | None = None
+        for bin_directory in homebrew_bins:
+            candidate = bin_directory / "python3"
+            try:
+                resolved = candidate.resolve(strict=True)
+            except OSError:
+                continue
+            for cellar in (
+                Path("/opt/homebrew/Cellar"),
+                Path("/usr/local/Cellar"),
+                Path("/home/linuxbrew/.linuxbrew/Cellar"),
+            ):
+                if resolved == cellar or cellar in resolved.parents:
+                    if cellar.stat().st_mode & stat.S_IWGRP:
+                        homebrew_python = candidate
+                        homebrew_cellar = cellar
+                    break
+            if homebrew_python is not None:
+                break
+        if homebrew_python is None or homebrew_cellar is None:
+            self.skipTest(
+                "dynamic Homebrew regression requires python3 below a "
+                "group-writable standard Cellar"
+            )
+
+        self.assertFalse(homebrew_cellar.stat().st_mode & stat.S_IWOTH)
+        self.assertIn(
+            homebrew_cellar.stat().st_gid,
+            {*os.getgroups(), os.getegid()},
+        )
+        cases = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        for adapter_name, relative_script, config_variable in cases:
+            with self.subTest(adapter=adapter_name), tempfile.TemporaryDirectory(
+                prefix=f"atlas homebrew python {adapter_name} "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                config = root / f"{adapter_name} config"
+                result = run_command(
+                    [relative_script],
+                    env={
+                        "HOME": str(root / "home"),
+                        config_variable: str(config),
+                        "PATH": (
+                            f"{homebrew_python.parent}"
+                            f"{os.pathsep}/usr/bin{os.pathsep}/bin"
+                        ),
+                    },
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(
+                    (config / "skills" / "map-project" / "SKILL.md").is_file()
+                )
+
+    def test_installers_reject_group_writable_diff_outside_repository(self) -> None:
+        cases = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        real_diff = shutil.which("diff")
+        self.assertIsNotNone(real_diff, "group-writable diff regression requires system diff")
+        for adapter_name, relative_script, config_variable in cases:
+            with self.subTest(adapter=adapter_name), tempfile.TemporaryDirectory(
+                prefix=f"atlas group writable diff {adapter_name} "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                fake_bin = root / "host-tools" / "bin"
+                canary = root / f"{adapter_name}-diff-executed"
+                fake_diff = self.write_fake_diff(
+                    fake_bin,
+                    f": > {str(canary)!r}\nexec \"$ATLAS_TEST_REAL_DIFF\" \"$@\"",
+                )
+                fake_diff.chmod(0o775)
+                config = root / f"{adapter_name} config"
+                result = run_command(
+                    [relative_script],
+                    env={
+                        "HOME": str(root / "home"),
+                        config_variable: str(config),
+                        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                        "ATLAS_TEST_REAL_DIFF": str(real_diff),
+                    },
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unsafe", result.stderr.lower())
+                self.assertFalse(
+                    canary.exists(),
+                    f"{adapter_name} installer launched group-writable diff",
+                )
+
+    def test_installers_reject_diff_under_group_writable_ancestor(self) -> None:
+        cases = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        for adapter_name, relative_script, config_variable in cases:
+            with self.subTest(adapter=adapter_name), tempfile.TemporaryDirectory(
+                prefix=f"atlas group writable diff parent {adapter_name} "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                unsafe_parent = root / "group-writable-parent"
+                fake_bin = unsafe_parent / "bin"
+                canary = root / f"{adapter_name}-diff-executed"
+                fake_diff = self.write_fake_diff(
+                    fake_bin,
+                    f": > {str(canary)!r}\nexit 97",
+                )
+                fake_diff.chmod(0o755)
+                unsafe_parent.chmod(0o775)
+                self.assertEqual(stat.S_IMODE(unsafe_parent.stat().st_mode), 0o775)
+                config = root / f"{adapter_name} config"
+                result = run_command(
+                    [relative_script],
+                    env={
+                        "HOME": str(root / "home"),
+                        config_variable: str(config),
+                        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                    },
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unsafe", result.stderr.lower())
+                self.assertFalse(
+                    canary.exists(),
+                    f"{adapter_name} installer launched diff below a 0775 ancestor",
+                )
+
+    def test_installers_reject_python_under_group_writable_ancestor(self) -> None:
+        cases = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        for adapter_name, relative_script, config_variable in cases:
+            with self.subTest(adapter=adapter_name), tempfile.TemporaryDirectory(
+                prefix=f"atlas group writable python parent {adapter_name} "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                unsafe_parent = root / "group-writable-parent"
+                fake_bin = unsafe_parent / "bin"
+                canary = root / f"{adapter_name}-python-executed"
+                fake_python = self.write_fake_command(
+                    fake_bin,
+                    "python3",
+                    f": > {str(canary)!r}\nexit 97",
+                )
+                fake_python.chmod(0o755)
+                unsafe_parent.chmod(0o775)
+                self.assertEqual(stat.S_IMODE(unsafe_parent.stat().st_mode), 0o775)
+                config = root / f"{adapter_name} config"
+                result = run_command(
+                    [relative_script],
+                    env={
+                        "HOME": str(root / "home"),
+                        config_variable: str(config),
+                        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                    },
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unsafe", result.stderr.lower())
+                self.assertFalse(
+                    canary.exists(),
+                    f"{adapter_name} installer launched python below a 0775 ancestor",
+                )
+
+    def test_installers_reject_diff_under_nonsticky_world_writable_ancestor(
+        self,
+    ) -> None:
+        cases = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        for adapter_name, relative_script, config_variable in cases:
+            with self.subTest(adapter=adapter_name), tempfile.TemporaryDirectory(
+                prefix=f"atlas world writable diff parent {adapter_name} "
+            ) as temp_dir:
+                root = Path(temp_dir)
+                unsafe_parent = root / "world-writable-parent"
+                fake_bin = unsafe_parent / "bin"
+                canary = root / f"{adapter_name}-diff-executed"
+                fake_diff = self.write_fake_diff(
+                    fake_bin,
+                    f": > {str(canary)!r}\nexit 97",
+                )
+                fake_diff.chmod(0o755)
+                unsafe_parent.chmod(0o777)
+                self.assertEqual(stat.S_IMODE(unsafe_parent.stat().st_mode), 0o777)
+                config = root / f"{adapter_name} config"
+                result = run_command(
+                    [relative_script],
+                    env={
+                        "HOME": str(root / "home"),
+                        config_variable: str(config),
+                        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                    },
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unsafe", result.stderr.lower())
+                self.assertFalse(
+                    canary.exists(),
+                    f"{adapter_name} installer launched diff below a non-sticky 0777 ancestor",
+                )
+
+    def test_installer_source_contract_rejects_untrusted_executable_owners(self) -> None:
+        source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
+        required_fragments = (
+            "'%u %g %Lp'",
+            "'%u %g %a'",
+            '[[ "$stat_owner" != "0" && "$stat_owner" != "$EUID" ]]',
+            "((python_mode_value & 0022))",
+            "/opt/homebrew/Cellar",
+            "/usr/local/Cellar",
+            "/home/linuxbrew/.linuxbrew/Cellar",
+            '[[ "$owner" == "0" || "$owner" == "$EUID" ]]',
+            'is_process_group "$group"',
+            "! ((mode_value & 0002))",
+            "trusted_owners = {0}",
+            "trusted_owners.add(effective_uid_getter())",
+            'getattr(metadata, "st_uid", None) not in trusted_owners',
+            "metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)",
+            "directory_mode & stat.S_IWGRP and not trusted_group_writable_cellar",
+        )
+        for fragment in required_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, source)
+
+    def test_bootstrap_homebrew_cellar_exception_is_narrow(self) -> None:
+        source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
+
+        def extract_function(name: str) -> str:
+            marker = f"{name}() {{"
+            self.assertEqual(source.count(marker), 1)
+            start = source.index(marker)
+            return source[start : source.index("\n}", start) + len("\n}")]
+
+        harness = (
+            "set -euo pipefail\n"
+            f"{extract_function('is_process_group')}\n"
+            f"{extract_function('is_trusted_homebrew_cellar_directory')}\n"
+            'mode_value=$((8#$4))\n'
+            'if is_trusted_homebrew_cellar_directory "$1" "$2" "$3" "$mode_value"; then\n'
+            "  builtin printf 'safe\\n'\n"
+            "else\n"
+            "  builtin printf 'unsafe\\n' >&2\n"
+            "  exit 1\n"
+            "fi\n"
+        )
+        effective_uid = os.geteuid()
+        process_group = os.getegid()
+        foreign_uid = next(
+            uid for uid in range(1, 10_000) if uid not in {0, effective_uid}
+        )
+        current_groups = {*os.getgroups(), process_group}
+        foreign_group = next(
+            gid for gid in range(1, 10_000) if gid not in current_groups
+        )
+        cases = (
+            ("/opt/homebrew/Cellar", effective_uid, process_group, "775", True),
+            ("/usr/local/Cellar", 0, process_group, "775", True),
+            (
+                "/home/linuxbrew/.linuxbrew/Cellar",
+                effective_uid,
+                process_group,
+                "775",
+                True,
+            ),
+            ("/tmp/homebrew/Cellar", effective_uid, process_group, "775", False),
+            ("/opt/homebrew/Cellar", foreign_uid, process_group, "775", False),
+            ("/opt/homebrew/Cellar", effective_uid, foreign_group, "775", False),
+            ("/opt/homebrew/Cellar", effective_uid, process_group, "777", False),
+        )
+        for path, owner, group, mode, accepted in cases:
+            with self.subTest(
+                path=path,
+                owner=owner,
+                group=group,
+                mode=mode,
+            ):
+                result = run_command(
+                    [
+                        "/bin/bash",
+                        "-p",
+                        "-c",
+                        harness,
+                        "homebrew-cellar-harness",
+                        path,
+                        str(owner),
+                        str(group),
+                        mode,
+                    ]
+                )
+                if accepted:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "safe\n")
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("unsafe", result.stderr.lower())
+
+    def test_bootstrap_python_owner_guard_accepts_root_and_euid_only(self) -> None:
+        source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
+        guard_marker = 'if [[ "$stat_owner" != "0" && "$stat_owner" != "$EUID" ]]'
+        self.assertEqual(source.count(guard_marker), 1)
+        guard_start = source.index(guard_marker)
+        guard_end = source.index("\nfi", guard_start) + len("\nfi")
+        exact_owner_guard = source[guard_start:guard_end]
+        harness = (
+            "set -euo pipefail\n"
+            'command_name="owner-guard-harness"\n'
+            'stat_owner="$1"\n'
+            'stat_mode="$2"\n'
+            "python_mode_value=$((8#$stat_mode))\n"
+            f"{exact_owner_guard}\n"
+            "builtin printf 'safe\\n'\n"
+        )
+        effective_uid_getter = getattr(os, "geteuid", None)
+        self.assertTrue(callable(effective_uid_getter))
+        effective_uid = effective_uid_getter()
+        foreign_uid = next(
+            uid for uid in range(1, 4) if uid not in {0, effective_uid}
+        )
+        cases = (
+            ("root", 0, True),
+            ("effective-user", effective_uid, True),
+            ("foreign-user", foreign_uid, False),
+        )
+        for owner_kind, owner_uid, accepted in cases:
+            with self.subTest(owner=owner_kind, uid=owner_uid):
+                result = run_command(
+                    ["/bin/bash", "-p", "-c", harness, "owner-harness", str(owner_uid), "755"]
+                )
+                if accepted:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, "safe\n")
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("unsafe", result.stderr.lower())
+                    self.assertNotIn("safe", result.stdout)
+
+    def test_embedded_diff_owner_guard_accepts_root_and_euid_only(self) -> None:
+        source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
+        heredoc_marker = "<<'PY'\n"
+        self.assertEqual(source.count(heredoc_marker), 1)
+        embedded_start = source.index(heredoc_marker) + len(heredoc_marker)
+        embedded_end = source.index("\nPY\n", embedded_start)
+        embedded_source = source[embedded_start:embedded_end]
+        parsed = ast.parse(embedded_source, filename="install.sh embedded Python")
+        required_names = {
+            "InstallFailure",
+            "stat_identity",
+            "has_ancestor_identity",
+            "is_trusted_homebrew_cellar_directory",
+            "trusted_external_executable",
+        }
+        owning_nodes = [
+            node
+            for node in parsed.body
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+            and node.name in required_names
+        ]
+        self.assertEqual({node.name for node in owning_nodes}, required_names)
+        owning_module = ast.Module(body=owning_nodes, type_ignores=[])
+        namespace = {
+            "os": os,
+            "Path": Path,
+            "shutil": shutil,
+            "stat": stat,
+        }
+        exec(
+            compile(
+                owning_module,
+                filename="install.sh embedded trusted executable",
+                mode="exec",
+            ),
+            namespace,
+        )
+        trusted_external_executable = namespace["trusted_external_executable"]
+        trusted_homebrew_cellar = namespace[
+            "is_trusted_homebrew_cellar_directory"
+        ]
+        install_failure = namespace["InstallFailure"]
+        namespace["source_skill"] = os.fspath(
+            REPO_ROOT / "adapters" / "codex" / "skills" / "map-project"
+        )
+
+        mocked_effective_uid = 42_424
+        foreign_uid = mocked_effective_uid + 1
+        process_group = 8_080
+        safe_cellar_metadata = mock.Mock(
+            st_uid=mocked_effective_uid,
+            st_gid=process_group,
+            st_mode=stat.S_IFDIR | 0o775,
+        )
+        for cellar in (
+            Path("/opt/homebrew/Cellar"),
+            Path("/usr/local/Cellar"),
+            Path("/home/linuxbrew/.linuxbrew/Cellar"),
+        ):
+            with self.subTest(cellar=cellar):
+                self.assertTrue(
+                    trusted_homebrew_cellar(
+                        cellar,
+                        safe_cellar_metadata,
+                        {0, mocked_effective_uid},
+                        {process_group},
+                    )
+                )
+        self.assertFalse(
+            trusted_homebrew_cellar(
+                Path("/tmp/homebrew/Cellar"),
+                safe_cellar_metadata,
+                {0, mocked_effective_uid},
+                {process_group},
+            )
+        )
+        for unsafe_metadata in (
+            mock.Mock(
+                st_uid=foreign_uid,
+                st_gid=process_group,
+                st_mode=stat.S_IFDIR | 0o775,
+            ),
+            mock.Mock(
+                st_uid=mocked_effective_uid,
+                st_gid=process_group + 1,
+                st_mode=stat.S_IFDIR | 0o775,
+            ),
+            mock.Mock(
+                st_uid=mocked_effective_uid,
+                st_gid=process_group,
+                st_mode=stat.S_IFDIR | 0o777,
+            ),
+        ):
+            with self.subTest(
+                uid=unsafe_metadata.st_uid,
+                gid=unsafe_metadata.st_gid,
+                mode=stat.S_IMODE(unsafe_metadata.st_mode),
+            ):
+                self.assertFalse(
+                    trusted_homebrew_cellar(
+                        Path("/opt/homebrew/Cellar"),
+                        unsafe_metadata,
+                        {0, mocked_effective_uid},
+                        {process_group},
+                    )
+                )
+        cases = (
+            ("root", 0, True),
+            ("effective-user", mocked_effective_uid, True),
+            ("foreign-user", foreign_uid, False),
+        )
+        with tempfile.TemporaryDirectory(prefix="atlas mocked diff owner ") as temp_dir:
+            executable = self.write_fake_diff(Path(temp_dir) / "bin", "exit 0")
+            resolved_executable = executable.resolve(strict=True)
+            real_path_stat = Path.stat
+            for owner_kind, owner_uid, accepted in cases:
+                with self.subTest(owner=owner_kind, uid=owner_uid):
+
+                    def stat_with_mocked_owner(
+                        path: Path,
+                        *args: object,
+                        **kwargs: object,
+                    ) -> os.stat_result:
+                        metadata = real_path_stat(path, *args, **kwargs)
+                        if os.path.samefile(path, resolved_executable):
+                            values = list(metadata)
+                            values[4] = owner_uid
+                            return os.stat_result(values)
+                        return metadata
+
+                    with (
+                        mock.patch.object(
+                            Path,
+                            "stat",
+                            new=stat_with_mocked_owner,
+                        ),
+                        mock.patch.object(
+                            os,
+                            "geteuid",
+                            return_value=mocked_effective_uid,
+                        ),
+                        mock.patch.object(
+                            shutil,
+                            "which",
+                            return_value=os.fspath(executable),
+                        ),
+                    ):
+                        if accepted:
+                            self.assertEqual(
+                                trusted_external_executable("diff"),
+                                os.fspath(resolved_executable),
+                            )
+                        else:
+                            with self.assertRaises(install_failure):
+                                trusted_external_executable("diff")
+
+    def test_stat_owner_and_mode_parses_gnu_fallback_output(self) -> None:
+        source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
+        function_marker = "stat_owner_and_mode() {"
+        self.assertEqual(source.count(function_marker), 1)
+        function_start = source.index(function_marker)
+        function_end = source.index("\n}", function_start) + len("\n}")
+        exact_function = source[function_start:function_end]
+        with tempfile.TemporaryDirectory(
+            prefix="atlas gnu owner group mode stat "
+        ) as temp_dir:
+            root = Path(temp_dir)
+            call_log = root / "stat-calls"
+            fake_stat = self.write_fake_command(
+                root / "bin",
+                "stat",
+                (
+                    'printf "%s\\n" "$*" >> "$ATLAS_TEST_STAT_LOG"\n'
+                    'if [ "$1" = "-f" ]; then exit 64; fi\n'
+                    'if [ "$1" = "-c" ] && [ "$2" = "%u %g %a" ] && '
+                    '[ "$3" = "--" ] && [ "$4" = "$ATLAS_TEST_STAT_TARGET" ]; then\n'
+                    '  printf "123 456 755\\n"\n'
+                    "  exit 0\n"
+                    "fi\n"
+                    "exit 65"
+                ),
+            )
+            harness = (
+                "set -euo pipefail\n"
+                'trusted_stat="$1"\n'
+                'target="$2"\n'
+                f"{exact_function}\n"
+                'stat_owner_and_mode "$target"\n'
+                'builtin printf "%s:%s:%s\\n" "$stat_owner" "$stat_group" "$stat_mode"\n'
+            )
+            result = run_command(
+                [
+                    "/bin/bash",
+                    "-p",
+                    "-c",
+                    harness,
+                    "stat-harness",
+                    os.fspath(fake_stat),
+                    os.fspath(REPO_ROOT),
+                ],
+                env={
+                    "ATLAS_TEST_STAT_LOG": os.fspath(call_log),
+                    "ATLAS_TEST_STAT_TARGET": os.fspath(REPO_ROOT),
+                },
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "123:456:755\n")
+            self.assertEqual(
+                call_log.read_text(encoding="utf-8").splitlines(),
+                [
+                    f"-f %u %g %Lp -- {REPO_ROOT}",
+                    f"-c %u %g %a -- {REPO_ROOT}",
+                ],
+            )
+
+    def test_installers_reject_executables_owned_by_untrusted_user_when_chown_is_available(
+        self,
+    ) -> None:
+        """Exercise owner checks dynamically when the runner can create a foreign owner."""
+
+        installers = (
+            ("codex", Path("scripts/install.sh"), "CODEX_HOME"),
+            ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
+        )
+        effective_uid_getter = getattr(os, "geteuid", None)
+        current_uid = effective_uid_getter() if callable(effective_uid_getter) else -1
+        untrusted_uid = 1 if current_uid != 1 else 2
+        chown = getattr(os, "chown", None)
+        for tool_name in ("python3", "diff"):
+            for adapter_name, relative_script, config_variable in installers:
+                with self.subTest(
+                    tool=tool_name,
+                    adapter=adapter_name,
+                ), tempfile.TemporaryDirectory(
+                    prefix=f"atlas foreign owner {tool_name} {adapter_name} "
+                ) as temp_dir:
+                    root = Path(temp_dir)
+                    fake_bin = root / "host-tools" / "bin"
+                    canary = root / f"{adapter_name}-{tool_name}-executed"
+                    command = self.write_fake_command(
+                        fake_bin,
+                        tool_name,
+                        f": > {str(canary)!r}\nexit 97",
+                    )
+                    if not callable(chown):
+                        self.skipTest(
+                            "dynamic owner regression requires os.chown; "
+                            "the source-contract test remains portable"
+                        )
+                    try:
+                        chown(command, untrusted_uid, -1)
+                    except (NotImplementedError, PermissionError):
+                        self.skipTest(
+                            "non-root runners cannot chown a fixture to an unrelated UID; "
+                            "the source-contract test remains portable"
+                        )
+                    self.assertEqual(command.stat().st_uid, untrusted_uid)
+                    config = root / f"{adapter_name} config"
+                    result = run_command(
+                        [relative_script],
+                        env={
+                            "HOME": str(root / "home"),
+                            config_variable: str(config),
+                            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                        },
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("unsafe", result.stderr.lower())
+                    self.assertFalse(
+                        canary.exists(),
+                        f"{adapter_name} installer launched foreign-owned {tool_name}",
+                    )
+
+    def test_stat_identity_parses_gnu_fallback_output(self) -> None:
+        source = read_text(self, REPO_ROOT / "scripts" / "install.sh")
+        function_marker = "stat_identity() {"
+        self.assertEqual(source.count(function_marker), 1)
+        function_start = source.index(function_marker)
+        function_end = source.index("\n}", function_start) + len("\n}")
+        exact_stat_identity = source[function_start:function_end]
+        with tempfile.TemporaryDirectory(prefix="atlas gnu stat fallback ") as temp_dir:
+            root = Path(temp_dir)
+            call_log = root / "stat-calls"
+            fake_stat = self.write_fake_command(
+                root / "bin",
+                "stat",
+                (
+                    'printf "%s\\n" "$*" >> "$ATLAS_TEST_STAT_LOG"\n'
+                    'if [ "$1" = "-f" ]; then exit 64; fi\n'
+                    'if [ "$1" = "-c" ] && [ "$2" = "%d %i" ] && '
+                    '[ "$3" = "--" ] && [ "$4" = "$ATLAS_TEST_STAT_TARGET" ]; then\n'
+                    '  printf "12345 67890\\n"\n'
+                    "  exit 0\n"
+                    "fi\n"
+                    "exit 65"
+                ),
+            )
+            harness = (
+                "set -euo pipefail\n"
+                'trusted_stat="$1"\n'
+                'target="$2"\n'
+                f"{exact_stat_identity}\n"
+                'stat_identity "$target"\n'
+                'builtin printf "%s:%s\\n" "$stat_device" "$stat_inode"\n'
+            )
+            result = run_command(
+                [
+                    "/bin/bash",
+                    "-p",
+                    "-c",
+                    harness,
+                    "stat-harness",
+                    os.fspath(fake_stat),
+                    os.fspath(REPO_ROOT),
+                ],
+                env={
+                    "ATLAS_TEST_STAT_LOG": os.fspath(call_log),
+                    "ATLAS_TEST_STAT_TARGET": os.fspath(REPO_ROOT),
+                },
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "12345:67890\n")
+            self.assertEqual(
+                call_log.read_text(encoding="utf-8").splitlines(),
+                [
+                    f"-f %d %i -- {REPO_ROOT}",
+                    f"-c %d %i -- {REPO_ROOT}",
+                ],
+            )
 
     def test_installers_do_not_execute_repository_path_tools_before_diff_guard(self) -> None:
         installers = (
@@ -425,7 +1280,12 @@ class InstallerContractTests(unittest.TestCase):
             ("claude", Path("scripts/install-claude.sh"), "CLAUDE_CONFIG_DIR"),
         )
         for adapter_name, relative_script, config_variable in installers:
-            for scenario in ("world-writable", "symlink-into-repository"):
+            for scenario in (
+                "group-writable",
+                "world-writable",
+                "world-writable-parent",
+                "symlink-into-repository",
+            ):
                 with self.subTest(
                     adapter=adapter_name,
                     scenario=scenario,
@@ -445,13 +1305,28 @@ class InstallerContractTests(unittest.TestCase):
                     )
                     canary = root / f"{adapter_name}-{scenario}-python-executed"
                     unsafe_bin = root / "unsafe-bin"
-                    if scenario == "world-writable":
+                    if scenario == "group-writable":
+                        self.write_fake_command(
+                            unsafe_bin,
+                            "python3",
+                            f": > {str(canary)!r}\nexit 97",
+                        )
+                        (unsafe_bin / "python3").chmod(0o775)
+                    elif scenario == "world-writable":
                         self.write_fake_command(
                             unsafe_bin,
                             "python3",
                             f": > {str(canary)!r}\nexit 97",
                         )
                         (unsafe_bin / "python3").chmod(0o777)
+                    elif scenario == "world-writable-parent":
+                        unsafe_bin = root / "world-writable-parent" / "bin"
+                        self.write_fake_command(
+                            unsafe_bin,
+                            "python3",
+                            f": > {str(canary)!r}\nexit 97",
+                        )
+                        unsafe_bin.parent.chmod(0o777)
                     else:
                         repository_bin = repository / "bin"
                         self.write_fake_command(
@@ -1174,6 +2049,78 @@ class InstallerContractTests(unittest.TestCase):
                     )
                     self.assertEqual(foreign_marker.read_text(encoding="utf-8"), "do-not-delete\n")
 
+    def test_cleanup_preserves_same_identity_tree_when_run_marker_drifts(self) -> None:
+        marker_name = ".project-atlas-install-owner.json"
+        cases = (
+            ("codex", REPO_ROOT / "scripts" / "install.sh", "CODEX_HOME"),
+            ("claude", REPO_ROOT / "scripts" / "install-claude.sh", "CLAUDE_CONFIG_DIR"),
+        )
+        for name, script, config_variable in cases:
+            with self.subTest(adapter=name):
+                with tempfile.TemporaryDirectory(
+                    prefix=f"atlas cleanup marker drift {name} "
+                ) as temp_dir:
+                    root = Path(temp_dir)
+                    config = root / f"{name} config"
+                    barrier = root / "cleanup-marker-verified"
+                    release = root / "release-cleanup-marker"
+                    env = os.environ.copy()
+                    env.update(
+                        {
+                            "HOME": str(root / "home"),
+                            config_variable: str(config),
+                            "ATLAS_TEST_CLEANUP_REMOVE_BARRIER": str(barrier),
+                            "ATLAS_TEST_CLEANUP_REMOVE_RELEASE": str(release),
+                        }
+                    )
+                    process = subprocess.Popen(
+                        ["bash", str(script)],
+                        cwd=REPO_ROOT,
+                        env=env,
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    self.wait_for_process_barrier(
+                        process,
+                        barrier,
+                        "installer never reached cleanup after quarantining its staging tree",
+                    )
+
+                    skills = config / "skills"
+                    cleanup_entries = list(skills.glob(".map-project.cleanup-*"))
+                    if len(cleanup_entries) != 1:
+                        release.touch()
+                        stdout, stderr = process.communicate(timeout=10)
+                        self.fail(
+                            "installer exposed an unexpected cleanup state: "
+                            f"{[entry.name for entry in cleanup_entries]}\n"
+                            f"stdout:\n{stdout}\nstderr:\n{stderr}"
+                        )
+                    cleanup = cleanup_entries[0]
+                    cleanup_identity = (cleanup.stat().st_dev, cleanup.stat().st_ino)
+                    marker = cleanup / marker_name
+                    marker.write_text("foreign ownership proof\n", encoding="utf-8")
+                    canary = cleanup / "foreign-canary.txt"
+                    canary.write_text("preserve\n", encoding="utf-8")
+                    self.assertEqual(
+                        (cleanup.stat().st_dev, cleanup.stat().st_ino),
+                        cleanup_identity,
+                        "test changed the directory identity instead of only its ownership proof",
+                    )
+                    release.touch()
+                    stdout, stderr = process.communicate(timeout=10)
+
+                    self.assertNotEqual(process.returncode, 0, stderr or stdout)
+                    preserved_canaries = list(
+                        skills.glob(".map-project.install-*/foreign-canary.txt")
+                    ) + list(skills.glob(".map-project.cleanup-*/foreign-canary.txt"))
+                    self.assertEqual(len(preserved_canaries), 1, stderr or stdout)
+                    self.assertEqual(
+                        preserved_canaries[0].read_text(encoding="utf-8"),
+                        "preserve\n",
+                    )
+
     def test_cleanup_restores_a_replacement_moved_during_source_quarantine(self) -> None:
         cases = (
             ("codex", REPO_ROOT / "scripts" / "install.sh", "CODEX_HOME"),
@@ -1308,6 +2255,96 @@ class InstallerContractTests(unittest.TestCase):
                         "keep-at-backup-path\n",
                     )
                     self.assertFalse((target / "foreign-marker.txt").exists())
+
+    def test_backup_restore_preserves_same_identity_payload_when_digest_drifts(self) -> None:
+        cases = (
+            ("codex", REPO_ROOT / "scripts" / "install.sh", "CODEX_HOME"),
+            ("claude", REPO_ROOT / "scripts" / "install-claude.sh", "CLAUDE_CONFIG_DIR"),
+        )
+        real_diff = shutil.which("diff")
+        self.assertIsNotNone(real_diff)
+        for name, script, config_variable in cases:
+            with self.subTest(adapter=name):
+                with tempfile.TemporaryDirectory(
+                    prefix=f"atlas backup payload drift {name} "
+                ) as temp_dir:
+                    root = Path(temp_dir)
+                    config = root / f"{name} config"
+                    target = config / "skills" / "map-project"
+                    target.mkdir(parents=True)
+                    original = target / "old-marker.txt"
+                    original.write_text("original\n", encoding="utf-8")
+                    fake_bin = root / "fake-bin"
+                    self.write_counted_diff(fake_bin)
+                    barrier = root / "backup-payload-verified"
+                    release = root / "release-backup-payload"
+                    env = os.environ.copy()
+                    env.update(
+                        {
+                            "HOME": str(root / "home"),
+                            config_variable: str(config),
+                            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                            "ATLAS_REAL_DIFF": str(real_diff),
+                            "ATLAS_TEST_DIFF_COUNT": str(root / "diff-count"),
+                            "ATLAS_TEST_FAIL_CALL": "3",
+                            "ATLAS_TEST_BACKUP_RESTORE_BARRIER": str(barrier),
+                            "ATLAS_TEST_BACKUP_RESTORE_RELEASE": str(release),
+                        }
+                    )
+                    process = subprocess.Popen(
+                        ["bash", str(script), "--force"],
+                        cwd=REPO_ROOT,
+                        env=env,
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    self.wait_for_process_barrier(
+                        process,
+                        barrier,
+                        "installer never paused after checking the backup payload",
+                    )
+
+                    backup_root = config / ".skill-backups" / "project-atlas"
+                    backups = list(backup_root.glob("map-project-*"))
+                    if len(backups) != 1:
+                        release.touch()
+                        stdout, stderr = process.communicate(timeout=10)
+                        self.fail(
+                            f"unexpected backup state: {backups}\n"
+                            f"stdout:\n{stdout}\nstderr:\n{stderr}"
+                        )
+                    backup = backups[0]
+                    backup_identity = (backup.stat().st_dev, backup.stat().st_ino)
+                    (backup / "old-marker.txt").write_text("altered\n", encoding="utf-8")
+                    canary = backup / "foreign-canary.txt"
+                    canary.write_text("preserve\n", encoding="utf-8")
+                    self.assertEqual(
+                        (backup.stat().st_dev, backup.stat().st_ino),
+                        backup_identity,
+                        "test changed the backup directory identity",
+                    )
+                    release.touch()
+                    stdout, stderr = process.communicate(timeout=10)
+
+                    self.assertNotEqual(process.returncode, 0, stderr or stdout)
+                    remaining_backups = list(backup_root.glob("map-project-*"))
+                    self.assertEqual(len(remaining_backups), 1, stderr or stdout)
+                    self.assertEqual(
+                        (remaining_backups[0].stat().st_dev, remaining_backups[0].stat().st_ino),
+                        backup_identity,
+                    )
+                    self.assertEqual(
+                        (remaining_backups[0] / "old-marker.txt").read_text(encoding="utf-8"),
+                        "altered\n",
+                    )
+                    self.assertEqual(
+                        (remaining_backups[0] / "foreign-canary.txt").read_text(
+                            encoding="utf-8"
+                        ),
+                        "preserve\n",
+                    )
+                    self.assertFalse(target.exists(), "rollback published the altered backup")
 
     def test_installers_reject_hardlinked_packaged_source_files(self) -> None:
         cases = (
@@ -1598,6 +2635,81 @@ class InstallerContractTests(unittest.TestCase):
                         (config / ".skill-backups" / "project-atlas").glob("map-project-*")
                     )
                     self.assertEqual(len(backups), 1)
+                    self.assertEqual(
+                        (backups[0] / "old-marker.txt").read_text(encoding="utf-8"),
+                        "original\n",
+                    )
+
+    def test_rollback_preserves_same_identity_target_when_run_marker_drifts(self) -> None:
+        marker_name = ".project-atlas-install-owner.json"
+        cases = (
+            ("codex", REPO_ROOT / "scripts" / "install.sh", "CODEX_HOME"),
+            ("claude", REPO_ROOT / "scripts" / "install-claude.sh", "CLAUDE_CONFIG_DIR"),
+        )
+        real_diff = shutil.which("diff")
+        self.assertIsNotNone(real_diff, "race regression requires the system diff command")
+        for name, script, config_variable in cases:
+            with self.subTest(adapter=name):
+                with tempfile.TemporaryDirectory(
+                    prefix=f"atlas promoted marker drift {name} "
+                ) as temp_dir:
+                    root = Path(temp_dir)
+                    config = root / f"{name} config"
+                    target = config / "skills" / "map-project"
+                    target.mkdir(parents=True)
+                    (target / "old-marker.txt").write_text("original\n", encoding="utf-8")
+                    fake_bin = root / "fake-bin"
+                    self.write_counted_diff(fake_bin)
+                    barrier = root / "promoted-marker-verified"
+                    release = root / "release-promoted-marker"
+                    env = os.environ.copy()
+                    env.update(
+                        {
+                            "HOME": str(root / "home"),
+                            config_variable: str(config),
+                            "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+                            "ATLAS_REAL_DIFF": str(real_diff),
+                            "ATLAS_TEST_DIFF_COUNT": str(root / "diff-count"),
+                            "ATLAS_TEST_BLOCK_CALL": "3",
+                            "ATLAS_TEST_FAIL_CALL": "3",
+                            "ATLAS_TEST_BARRIER": str(barrier),
+                            "ATLAS_TEST_RELEASE": str(release),
+                        }
+                    )
+                    process = subprocess.Popen(
+                        ["bash", str(script), "--force"],
+                        cwd=REPO_ROOT,
+                        env=env,
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    self.wait_for_process_barrier(
+                        process,
+                        barrier,
+                        "installer never reached post-promotion verification",
+                    )
+
+                    target_identity = (target.stat().st_dev, target.stat().st_ino)
+                    marker = target / marker_name
+                    marker.write_text("foreign ownership proof\n", encoding="utf-8")
+                    canary = target / "foreign-canary.txt"
+                    canary.write_text("preserve\n", encoding="utf-8")
+                    self.assertEqual(
+                        (target.stat().st_dev, target.stat().st_ino),
+                        target_identity,
+                        "test changed the promoted directory identity",
+                    )
+                    release.touch()
+                    stdout, stderr = process.communicate(timeout=10)
+
+                    self.assertNotEqual(process.returncode, 0, stderr or stdout)
+                    self.assertEqual(canary.read_text(encoding="utf-8"), "preserve\n")
+                    self.assertEqual(marker.read_text(encoding="utf-8"), "foreign ownership proof\n")
+                    backups = list(
+                        (config / ".skill-backups" / "project-atlas").glob("map-project-*")
+                    )
+                    self.assertEqual(len(backups), 1, stderr or stdout)
                     self.assertEqual(
                         (backups[0] / "old-marker.txt").read_text(encoding="utf-8"),
                         "original\n",
